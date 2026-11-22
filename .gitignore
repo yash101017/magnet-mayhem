@@ -1,0 +1,6 @@
+profiles.json
+profiles.json.tmp
+.env
+.env.*
+node_modules/
+index.html
