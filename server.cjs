@@ -13,6 +13,8 @@ const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
 const {fields,botRivals,createGame,step,stepSeconds,clamp}=require('./engine.cjs')
 const {createCheckout,checkoutEnabled,handleWebhook}=require('./payment.cjs')
+const {attachMatchSockets}=require('./match-socket.cjs')
+let streamAvailable=false
 
 const page=fs.readFileSync(path.join(__dirname,'index.html'))
 const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json')
@@ -352,7 +354,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'smooth-online-rendering'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'live-match-stream',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/checkout','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
@@ -386,6 +388,7 @@ async function serve(req,res){
 const port=Number(process.env.PORT||8792)
 if(require.main===module){
   const server=http.createServer(serve)
+  streamAvailable=attachMatchSockets(server,roomAction,sessions)
   server.on('error',error=>{
     console.error(error.code==='EADDRINUSE'?'Port '+port+' is already in use. Try Play.cmd with a different port.':error.message)
     process.exitCode=1

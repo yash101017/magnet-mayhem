@@ -338,12 +338,16 @@ function runAI(game,dt) {
   }
 }
 
-function applyInput(game,seat,input,dt) {
-  const craft=game.craft[seat]
+function steerPlayer(craft,input,dt) {
   const targeted=Number.isFinite(input.x)&&Number.isFinite(input.y)
   const tilt=Math.min(1,Math.hypot(input.dx,input.dy))
   const strength=targeted?1:tilt**1.65
   steer(craft,input.x??craft.x+input.dx*90,input.y??craft.y+input.dy*90,365*strength,dt,targeted?27:18)
+}
+
+function applyInput(game,seat,input,dt) {
+  const craft=game.craft[seat]
+  steerPlayer(craft,input,dt)
   if(input.shot&&input.shot.id>game.lastShot[seat]){
     game.lastShot[seat]=input.shot.id
     magnet(game,seat,input.shot.push)
@@ -414,7 +418,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,step,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 

@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,clamp}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -12,7 +12,8 @@ let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0
 let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
-let backdrop=null, backdropKey=null
+let backdrop=null, backdropKey=null, localPose=null
+let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
 
 function saved(key,value){
   try {
@@ -53,6 +54,7 @@ function clearPlayState(){
   previousOverlay=''
   bursts=[]
   pos=null
+  localPose=null
   snapshotArrival=0
   cachedStatus=''
 }
@@ -264,7 +266,8 @@ function arenaBackdrop(field){
 function draw(dt){
   ctx.setTransform(2,0,0,2,0,0)
   ctx.clearRect(0,0,W,H)
-  ctx.drawImage(arenaBackdrop(activeField(game)),0,0,W,H)
+  const field=activeField(game)
+  ctx.drawImage(arenaBackdrop(field),0,0,W,H)
   const solo=game.mode==='practice'||game.mode==='circuit'
   const targets=[...game.craft,game.puck]
   if(!pos)pos=targets.map(body=>({x:body.x,y:body.y}))
@@ -273,6 +276,21 @@ function draw(dt){
   targets.forEach((body,index)=>{
     const x=clamp(body.x+body.vx*predict,0,W)
     const y=clamp(body.y+body.vy*predict,0,H)
+    if(index===online.seat&&online.connection&&game.phase==='play'){
+      localPose??={...body}
+      const input=inputState()
+      const driving=Number.isFinite(input.x)||Boolean(input.dx||input.dy)
+      steerPlayer(localPose,input,dt)
+      const offset=Math.hypot(x-localPose.x,y-localPose.y)
+      const blend=offset>100?1:1-Math.exp(-dt*(driving&&offset<42?5:16))
+      localPose.x+=(x-localPose.x)*blend
+      localPose.y+=(y-localPose.y)*blend
+      for(const bumper of field.bumpers)separate(localPose,bumper,14+bumper.r,1,0,.15)
+      pos[index].x=localPose.x
+      pos[index].y=localPose.y
+      return
+    }
+    if(index===online.seat)localPose=null
     const blend=!online.connection||Math.hypot(pos[index].x-body.x,pos[index].y-body.y)>110?1:1-Math.exp(-dt*20)
     pos[index].x+=(x-pos[index].x)*blend
     pos[index].y+=(y-pos[index].y)*blend
@@ -357,7 +375,7 @@ steerSurface.addEventListener('pointerdown',event=>{
   const rect=canvas.getBoundingClientRect()
   if(!rect.width||!rect.height)return
   if(event.cancelable)event.preventDefault()
-  const craft=game.craft[online.seat]
+  const craft=pos?.[online.seat]||game.craft[online.seat]
   pointer={id:event.pointerId,active:true,relative,originX:craft.x,originY:craft.y,
     startX:event.clientX,startY:event.clientY,scaleX:W/rect.width*1.15,scaleY:H/rect.height*1.15}
   steerSurface.setPointerCapture(event.pointerId)
@@ -522,6 +540,9 @@ $('account-form').addEventListener('submit',async event=>{
   finally{button.disabled=false}
 })
 function resetOnline(){
+  closeMatchStream()
+  streamFailures=0
+  streamRetry=0
   online.connection=null
   online.seat=0
   online.matchId=null
@@ -552,57 +573,120 @@ async function connect(action){
     write('room-code',result.code||'')
     $('copy').hidden=!result.code
     write('room-message',result.code?'Share this code with your friend.':'Looking for an opponent?')
+    openMatchStream()
     await syncOnline(true)
   }catch(error){write('room-message',error.message)}
   finally{online.connecting=false}
 }
-async function syncOnline(urgent=false){
-  if(!online.connection||online.busy)return
-  const now=performance.now()
-  const minimum=online.matchId&&game.phase!=='over'?45:180
-  if(!urgent&&now-lastSync<minimum)return
-  lastSync=now
-  online.busy=true
+function matchInput(){
+  return {action:'sync',token:online.connection.token,input:inputState(),look:{ship:shipStyle,goal:cosmetic},rematch:online.rematch}
+}
+function closeMatchStream(){
+  const old=matchSocket
+  matchSocket=null
+  streamReady=false
+  old?.close()
+}
+function openMatchStream(){
+  if(typeof WebSocket==='undefined'||matchSocket||!online.connection||streamFailures>=3)return
+  const url=new URL('/match-stream',location.href)
+  url.protocol=location.protocol==='https:'?'wss:':'ws:'
   const connection=online.connection
   try{
-    const state=await api('/room',{action:'sync',token:connection.token,input:inputState(),look:{ship:shipStyle,goal:cosmetic},rematch:online.rematch})
-    if(connection!==online.connection)return
-    online.errors=0
-    online.state=state
-    if(state.notice)online.rematch=false
-    if(state.result?.coins&&rewardMatch!==state.matchId){
-      rewardMatch=state.matchId
-      coins=state.result.balance
-    }
-    if(!state.game){
-      if(online.rematch&&state.queued){
-        online.matchId=null
-        online.rematch=false
-        write('room-message','Looking for a rival?')
+    const socket=new WebSocket(url)
+    matchSocket=socket
+    socket.addEventListener('open',()=>{
+      if(matchSocket===socket&&online.connection===connection)socket.send(JSON.stringify(matchInput()))
+    })
+    socket.addEventListener('message',event=>{
+      if(matchSocket!==socket||online.connection!==connection)return
+      let state
+      try{state=JSON.parse(event.data)}catch{return}
+      if(state.error){
+        closeMatchStream()
+        streamRetry=performance.now()+1000
+        return
       }
-      return
-    }
-    if(state.matchId!==online.matchId){
-      clearPlayState()
-      online.matchId=state.matchId
-      online.seat=state.seat
-      online.rematch=false
-      game=state.game
-      $('field-picker').value=String(game.field)
-      write('room-message','You are '+(state.seat===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
-      closeDialog('lobby-dialog')
-    }else{
-      if(game.phase!=='serve'&&state.game.phase==='serve')pos=null
-      game=state.game
-    }
-    snapshotArrival=performance.now()
+      streamReady=true
+      streamFailures=0
+      streamLastMessage=performance.now()
+      applyOnlineState(state)
+    })
+    socket.addEventListener('close',()=>{
+      if(matchSocket!==socket)return
+      closeMatchStream()
+      streamFailures++
+      streamRetry=performance.now()+500*2**(streamFailures-1)
+    })
+  }catch{
+    streamFailures++
+    streamRetry=performance.now()+500*2**(streamFailures-1)
+  }
+}
+let streamLastMessage=0
+function applyOnlineState(state){
+  online.errors=0
+  online.state=state
+  if(state.notice)online.rematch=false
+  if(state.result?.coins&&rewardMatch!==state.matchId){
+    rewardMatch=state.matchId
+    coins=state.result.balance
+  }
+  if(!state.game){
     if(online.rematch&&state.queued){
       online.matchId=null
       online.rematch=false
       write('room-message','Looking for a rival?')
     }
+    return
+  }
+  if(state.matchId!==online.matchId){
+    clearPlayState()
+    online.matchId=state.matchId
+    online.seat=state.seat
+    online.rematch=false
+    game=state.game
+    $('field-picker').value=String(game.field)
+    write('room-message','You are '+(state.seat===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
+    closeDialog('lobby-dialog')
+  }else{
+    if(game.phase!=='serve'&&state.game.phase==='serve'){pos=null;localPose=null}
+    game=state.game
+  }
+  snapshotArrival=performance.now()
+  if(online.rematch&&state.queued){
+    online.matchId=null
+    online.rematch=false
+    write('room-message','Looking for a rival?')
+  }
+}
+async function syncOnline(urgent=false){
+  if(!online.connection)return
+  const now=performance.now()
+  if(streamReady&&now-streamLastMessage>1300){
+    closeMatchStream()
+    streamRetry=now+750
+  }
+  if(!matchSocket&&now>=streamRetry)openMatchStream()
+  const minimum=online.matchId&&game.phase!=='over'?(streamReady?30:45):180
+  if(!urgent&&now-lastSync<minimum)return
+  if(streamReady&&matchSocket?.readyState===1){
+    if(matchSocket.bufferedAmount<4000){
+      lastSync=now
+      matchSocket.send(JSON.stringify(matchInput()))
+    }
+    return
+  }
+  if(online.busy)return
+  lastSync=now
+  online.busy=true
+  const connection=online.connection
+  try{
+    const state=await api('/room',matchInput())
+    if(connection!==online.connection||streamReady)return
+    applyOnlineState(state)
   }catch(error){
-    if(connection===online.connection&&++online.errors>=7){
+    if(connection===online.connection&&!streamReady&&++online.errors>=7){
       resetOnline()
       write('room-message','Connection lost. Create or join another room.')
       showDialog('lobby-dialog')
@@ -635,7 +719,7 @@ $('copy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText($('room-code').textContent);write('room-message','Room code copied.')}
   catch{write('room-message','Share the room code shown above.')}
 })
-setInterval(syncOnline,45)
+setInterval(syncOnline,34)
 
 function updateShop(){
   $('buy').hidden=ownsPack
