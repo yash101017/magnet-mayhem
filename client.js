@@ -11,7 +11,8 @@ const coinPrices={ice:90,comet:150}
 let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0
 let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
-let pos=null, frameTime=performance.now()
+let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
+let backdrop=null, backdropKey=null
 
 function saved(key,value){
   try {
@@ -52,6 +53,7 @@ function clearPlayState(){
   previousOverlay=''
   bursts=[]
   pos=null
+  snapshotArrival=0
   cachedStatus=''
 }
 function setMenu(){
@@ -189,17 +191,14 @@ function renderHud(){
     if(button.getAttribute('aria-disabled')!==value)button.setAttribute('aria-disabled',value)
   }
 }
-function stroke(x,y,xx,yy,color,width=1){
-  ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(xx,yy);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()
+function stroke(x,y,xx,yy,color,width=1,g=ctx){
+  g.beginPath();g.moveTo(x,y);g.lineTo(xx,yy);g.strokeStyle=color;g.lineWidth=width;g.stroke()
 }
-function ring(x,y,r,color,width=1){
-  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()
+function ring(x,y,r,color,width=1,g=ctx){
+  g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.strokeStyle=color;g.lineWidth=width;g.stroke()
 }
-function disc(x,y,r,color){
-  ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()
-}
-function glow(color,blur,draw){
-  ctx.shadowColor=color;ctx.shadowBlur=blur;draw();ctx.shadowBlur=0
+function disc(x,y,r,color,g=ctx){
+  g.fillStyle=color;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()
 }
 function drawShip(g,x,y,color,style,aim=0,scale=1){
   g.save()
@@ -225,38 +224,58 @@ function drawShip(g,x,y,color,style,aim=0,scale=1){
   g.stroke()
   g.restore()
 }
+function arenaBackdrop(field){
+  if(backdrop&&backdropKey===field.name)return backdrop
+  backdrop??=document.createElement('canvas')
+  backdrop.width=canvas.width
+  backdrop.height=canvas.height
+  const g=backdrop.getContext('2d')
+  g.setTransform(2,0,0,2,0,0)
+  g.clearRect(0,0,W,H)
+  g.fillStyle='#263657'
+  for(let x=24;x<W;x+=24)for(let y=24;y<H;y+=24)g.fillRect(x,y,2,2)
+  stroke(wall,H/2,W-wall,H/2,'#36426b',1,g)
+  ring(180,260,52,'#36426b',1,g)
+  const inset=wall+cornerRadius
+  for(const [y,color] of [[wall,game.craft[1].color],[H-wall,game.craft[0].color]]){
+    stroke(inset,y,180-goal,y,'#7184ae',3,g);stroke(180+goal,y,W-inset,y,'#7184ae',3,g)
+    g.shadowColor=color;g.shadowBlur=15
+    stroke(180-goal,y,180+goal,y,color,5,g)
+    g.shadowBlur=0
+  }
+  stroke(wall,inset,wall,H-inset,'#7184ae',3,g)
+  stroke(W-wall,inset,W-wall,H-inset,'#7184ae',3,g)
+  for(const [x,y,angle] of [[inset,inset,Math.PI],[W-inset,inset,-Math.PI/2],
+    [W-inset,H-inset,0],[inset,H-inset,Math.PI/2]]){
+    g.beginPath()
+    g.arc(x,y,cornerRadius,angle,angle+Math.PI/2)
+    g.strokeStyle='#7184ae'
+    g.lineWidth=3
+    g.stroke()
+  }
+  for(const obstacle of field.bumpers){
+    disc(obstacle.x,obstacle.y,obstacle.r,'#3a2651',g)
+    ring(obstacle.x,obstacle.y,obstacle.r,'#d193ff',2,g)
+    ring(obstacle.x,obstacle.y,obstacle.r-7,'#78539d',1.5,g)
+  }
+  backdropKey=field.name
+  return backdrop
+}
 function draw(dt){
   ctx.setTransform(2,0,0,2,0,0)
   ctx.clearRect(0,0,W,H)
-  for(let x=24;x<W;x+=24)for(let y=24;y<H;y+=24)disc(x,y,1,'#263657')
-  stroke(wall,H/2,W-wall,H/2,'#36426b')
-  ring(180,260,52,'#36426b')
+  ctx.drawImage(arenaBackdrop(activeField(game)),0,0,W,H)
   const solo=game.mode==='practice'||game.mode==='circuit'
-  const inset=wall+cornerRadius
-  for(const [y,color] of [[wall,game.craft[1].color],[H-wall,game.craft[0].color]]){
-    stroke(inset,y,180-goal,y,'#7184ae',3);stroke(180+goal,y,W-inset,y,'#7184ae',3)
-    glow(color,15,()=>stroke(180-goal,y,180+goal,y,color,5))
-  }
-  stroke(wall,inset,wall,H-inset,'#7184ae',3)
-  stroke(W-wall,inset,W-wall,H-inset,'#7184ae',3)
-  for(const [x,y,angle] of [[inset,inset,Math.PI],[W-inset,inset,-Math.PI/2],
-    [W-inset,H-inset,0],[inset,H-inset,Math.PI/2]]){
-    ctx.beginPath()
-    ctx.arc(x,y,cornerRadius,angle,angle+Math.PI/2)
-    ctx.strokeStyle='#7184ae'
-    ctx.lineWidth=3
-    ctx.stroke()
-  }
-  for(const obstacle of activeField(game).bumpers){
-    disc(obstacle.x,obstacle.y,obstacle.r,'#3a2651')
-    ring(obstacle.x,obstacle.y,obstacle.r,'#d193ff',2)
-    ring(obstacle.x,obstacle.y,obstacle.r-7,'#78539d',1.5)
-  }
   const targets=[...game.craft,game.puck]
   if(!pos)pos=targets.map(body=>({x:body.x,y:body.y}))
+  const predict=online.connection&&game.phase==='play'&&snapshotArrival?
+    clamp((performance.now()-snapshotArrival)/1000,0,.10):0
   targets.forEach((body,index)=>{
-    const blend=!online.connection||Math.hypot(pos[index].x-body.x,pos[index].y-body.y)>95?1:Math.min(1,dt*52)
-    pos[index].x+=(body.x-pos[index].x)*blend;pos[index].y+=(body.y-pos[index].y)*blend
+    const x=clamp(body.x+body.vx*predict,0,W)
+    const y=clamp(body.y+body.vy*predict,0,H)
+    const blend=!online.connection||Math.hypot(pos[index].x-body.x,pos[index].y-body.y)>110?1:1-Math.exp(-dt*20)
+    pos[index].x+=(x-pos[index].x)*blend
+    pos[index].y+=(y-pos[index].y)*blend
   })
   const ours=pos[online.seat], color=game.craft[online.seat].color
   if(!menu&&game.phase==='play'){
@@ -274,9 +293,10 @@ function draw(dt){
   for(let seat=0;seat<(solo?1:2);seat++){
     const ship=pos[seat], shipColor=game.craft[seat].color
     const aim=Math.atan2(pos[2].y-ship.y,pos[2].x-ship.x)
-    glow(shipColor,8,()=>drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim))
+    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim)
   }
-  glow('#ffdb75',16,()=>disc(pos[2].x,pos[2].y,8,'#ffe382'))
+  disc(pos[2].x,pos[2].y,11,'#ffdb753a')
+  disc(pos[2].x,pos[2].y,8,'#ffe382')
   bursts=bursts.filter(particle=>{
     particle.life-=dt
     if(particle.life<=0)return false
@@ -312,8 +332,8 @@ function frame(now){
     refreshProfile()
   }
   renderEvent()
-  draw(dt)
-  renderHud()
+  if(!menu)draw(dt)
+  if(now-lastHud>=70){lastHud=now;renderHud()}
   requestAnimationFrame(frame)
 }
 $('match-view').addEventListener('contextmenu',event=>event.preventDefault())
@@ -364,7 +384,7 @@ for(const type of ['pointerup','pointercancel','lostpointercapture'])steerSurfac
 function shoot(push){
   if(menu||game.phase!=='play'||anyDialog()||game.craft[online.seat].cd>0)return
   shot={id:++shotSerial,push}
-  syncOnline()
+  syncOnline(true)
 }
 window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase()
@@ -532,12 +552,16 @@ async function connect(action){
     write('room-code',result.code||'')
     $('copy').hidden=!result.code
     write('room-message',result.code?'Share this code with your friend.':'Looking for an opponent?')
-    await syncOnline()
+    await syncOnline(true)
   }catch(error){write('room-message',error.message)}
   finally{online.connecting=false}
 }
-async function syncOnline(){
+async function syncOnline(urgent=false){
   if(!online.connection||online.busy)return
+  const now=performance.now()
+  const minimum=online.matchId&&game.phase!=='over'?45:180
+  if(!urgent&&now-lastSync<minimum)return
+  lastSync=now
   online.busy=true
   const connection=online.connection
   try{
@@ -567,7 +591,11 @@ async function syncOnline(){
       $('field-picker').value=String(game.field)
       write('room-message','You are '+(state.seat===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
       closeDialog('lobby-dialog')
-    }else game=state.game
+    }else{
+      if(game.phase!=='serve'&&state.game.phase==='serve')pos=null
+      game=state.game
+    }
+    snapshotArrival=performance.now()
     if(online.rematch&&state.queued){
       online.matchId=null
       online.rematch=false
@@ -607,7 +635,7 @@ $('copy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText($('room-code').textContent);write('room-message','Room code copied.')}
   catch{write('room-message','Share the room code shown above.')}
 })
-setInterval(syncOnline,35)
+setInterval(syncOnline,45)
 
 function updateShop(){
   $('buy').hidden=ownsPack
@@ -726,4 +754,5 @@ setMenu()
 requestAnimationFrame(frame)
 refreshProfile()
 checkPaymentReturn()
+
 

@@ -352,7 +352,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'relative-swipe-controls'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'smooth-online-rendering'});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/checkout','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
