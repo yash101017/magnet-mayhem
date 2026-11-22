@@ -1,0 +1,12 @@
+{
+  "name": "magnet-mayhem",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "build": "node build.cjs",
+    "start": "node server.cjs"
+  }
+}

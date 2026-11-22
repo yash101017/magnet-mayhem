@@ -1,0 +1,729 @@
+'use strict'
+const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,clamp}=MagnetEngine
+const $=id=>document.getElementById(id)
+const canvas=$('field'),ctx=canvas.getContext('2d')
+const held=new Set()
+const online={connection:null,seat:0,busy:false,errors:0,rematch:false}
+const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ffe676','#68ffd9','#79b8ff','#e78aff'],gold:['#fff1b0','#ffb84c','#fb8233'],comet:['#efffff','#7aeeff','#7296ff']}
+let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
+let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
+const coinPrices={ice:90,comet:150}
+let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
+let practicing=false,practiceBank=0
+let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let pos=null, frameTime=performance.now()
+
+function saved(key,value){
+  try {
+    if(value!==undefined)localStorage.setItem('magnet-'+key,value)
+    return localStorage.getItem('magnet-'+key)
+  }catch{return null}
+}
+profile=saved('profile')
+let buttonSide=saved('button-side')==='right'?'right':'left'
+function updateButtonSide(){
+  $('match-stage').dataset.side=buttonSide
+  write('control-side','Buttons: '+(buttonSide==='left'?'Left':'Right'))
+  $('control-side').setAttribute('aria-label','Move action buttons to the '+(buttonSide==='left'?'right':'left'))
+}
+function safeCosmetic(value){return gear.includes(value)||ownsPack&&['prism','gold'].includes(value)?value:'classic'}
+for(const [index,field] of fields.entries()){
+  const option=document.createElement('option')
+  option.value=index
+  option.textContent=field.name
+  $('field-picker').append(option)
+}
+function changeField(){
+  if(online.connection)return
+  currentField=Number($('field-picker').value)
+  if(menu || game.phase==='over'){
+    if(menu)game=createGame({mode:'online',field:currentField})
+    renderHud()
+    return
+  }
+  setMenu()
+}
+$('field-picker').addEventListener('change',changeField)
+function clearPlayState(){
+  pointer=null
+  held.clear()
+  shot=null
+  previousEvent=''
+  previousOverlay=''
+  bursts=[]
+  pos=null
+  cachedStatus=''
+}
+function setMenu(){
+  practicing=false
+  practiceBank=0
+  clearPlayState()
+  menu=true
+  game=createGame({mode:'online',field:currentField})
+  cachedStatus='First to 3'
+  renderHud()
+}
+function startPractice(){
+  clearPlayState()
+  practicing=true
+  practiceBank=0
+  menu=false
+  game=createGame({mode:'bot',difficulty:'training',field:currentField})
+  renderHud()
+}
+function goReplay(){
+  if(practicing){startPractice();return}
+  if(menu){openLobby();return}
+  if(online.connection){
+    online.rematch=true
+    renderHud()
+  }
+}
+function showDialog(id){
+  const dialog=$(id)
+  if(!dialog.open)dialog.showModal()
+  pointer=null
+  held.clear()
+}
+function closeDialog(id){
+  const dialog=$(id)
+  if(dialog.open)dialog.close()
+}
+const anyDialog=()=>[...document.querySelectorAll('dialog')].some(dialog=>dialog.open)
+function beep(freq,duration,type='sine'){
+  if(!sound||!audio||audio.state!=='running')return
+  const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime
+  osc.type=type;osc.frequency.value=freq
+  gain.gain.setValueAtTime(.08,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
+  osc.connect(gain).connect(audio.destination);osc.start(now);osc.stop(now+duration)
+}
+function celebrate(x,y,theme){
+  const colors=themeColors[theme]||themeColors.classic
+  for(let i=0;i<36;i++){
+    const angle=i*Math.PI*2/36
+    const speed=50+((i*43)%150)
+    bursts.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,color:colors[i%colors.length],life:.45+i%4*.12})
+  }
+}
+function renderEvent(){
+  const event=game.event
+  const key=(online.matchId||'local')+':'+event.id
+  if(previousEvent===key||!event.id)return
+  previousEvent=key
+  const ours=event.seat===online.seat
+  if(event.kind==='goal'){
+    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.seat]?.goal||(ours?cosmetic:'classic'))
+    beep(ours?660:175,.36,'triangle')
+    cachedStatus=ours?'Goal!':'Opponent scores'
+  }
+  if(event.kind==='push'||event.kind==='pull'){
+    beep(event.kind==='push'?260:490,.12,'triangle')
+    if(ours)cachedStatus=''
+  }
+  if(event.kind==='miss'&&ours){cachedStatus='Get closer to the puck';beep(105,.10)}
+  if(event.kind==='reset')cachedStatus='Puck reset'
+  if(event.kind==='release')beep(310,.12,'triangle')
+}
+function showOverlay(title,message,replay,offer){
+  const key=JSON.stringify([title,message,replay,offer])
+  if(previousOverlay===key)return
+  previousOverlay=key
+  $('title').textContent=title
+  $('message').textContent=message
+  $('replay').hidden=!replay
+  $('replay').disabled=Boolean(online.rematch)
+  $('replay').textContent=replay||''
+  $('result-shop').hidden=!offer
+}
+function write(id,text){
+  const node=$(id)
+  if(node.textContent!==text)node.textContent=text
+}
+function renderHud(){
+  write('coin-total',coins+' coins')
+  const remaining=refillDeadline===null?null:Math.max(0,Math.ceil((refillDeadline-performance.now())/1000))
+  write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
+    String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
+  $('game-root').dataset.match=String(!menu)
+  $('home-view').hidden=!menu
+  $('match-view').hidden=menu
+  const solo=game.mode==='practice'||game.mode==='circuit'
+  const seat=online.seat
+  const names=online.state?.names
+  const tags=names||[username||'YOU',practicing?'Practice':'']
+  write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
+  write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
+  const clock=Math.ceil(game.clock)
+  const clockText=Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0')
+  write('status',menu?'First to 3':online.connection&&!online.matchId?'Finding opponent?':
+    game.phase==='serve'?(game.extra?'Sudden death':'Get ready'):
+    game.phase==='goal'?cachedStatus||'Goal':
+    solo?(cachedStatus||activeField(game).name):
+    game.extra?'Sudden death':cachedStatus||clockText)
+  const overlay=menu||game.phase==='over'||Boolean(online.connection&&!online.matchId)
+  $('overlay').hidden=!overlay
+  $('match-stage').dataset.overlay=String(overlay)
+  $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
+  if(menu){
+    showOverlay(fields[currentField].name,'Drag to steer. Pull the puck close, then push it into the opposing goal.','Open Online',false)
+  }else if(online.connection&&!online.matchId){
+    showOverlay(online.ranked?'Finding a rival':'Waiting for friend',
+      online.ranked?'Your match should start in a few seconds.':'Open Online to see your room code.',null,false)
+  }else if(game.phase==='over'){
+    let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
+      game.winner===seat?'You win!':'Opponent wins'
+    let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
+    if(online.state?.result?.coins)message+=' · +'+online.state.result.coins+' Arena Coins'
+    if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
+    if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
+    if(ownsPack&&game.winner===seat)message+=' · Founders'
+    const replay=online.rematch?'Waiting for rival':online.ranked?'Find another match':'Rematch'
+    showOverlay(title,message,replay,!ownsPack)
+  }
+  const craft=game.craft[seat]
+  const live=!menu&&game.phase==='play'&&(!online.connection||Boolean(online.matchId))
+  const ready=live&&craft.cd<=0
+  for(const id of ['push','pull']){
+    const button=$(id)
+    const value=String(!ready)
+    if(button.getAttribute('aria-disabled')!==value)button.setAttribute('aria-disabled',value)
+  }
+}
+function stroke(x,y,xx,yy,color,width=1){
+  ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(xx,yy);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()
+}
+function ring(x,y,r,color,width=1){
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()
+}
+function disc(x,y,r,color){
+  ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()
+}
+function glow(color,blur,draw){
+  ctx.shadowColor=color;ctx.shadowBlur=blur;draw();ctx.shadowBlur=0
+}
+function drawShip(g,x,y,color,style,aim=0,scale=1){
+  g.save()
+  g.translate(x,y)
+  g.rotate(aim)
+  g.scale(scale,scale)
+  g.fillStyle=color;g.beginPath();g.arc(0,0,14,0,Math.PI*2);g.fill()
+  g.fillStyle='#111831';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill()
+  g.strokeStyle=style==='prism'?'#d3a5ff':style==='gold'?'#ffd182':style==='ice'?'#8ef0ff':color
+  g.lineWidth=2.2
+  g.beginPath()
+  if(style==='prism'){
+    g.moveTo(9,0);g.lineTo(0,-6);g.lineTo(-8,0);g.lineTo(0,6);g.closePath()
+  }else if(style==='ice'){
+    g.moveTo(-8,0);g.lineTo(0,-7);g.lineTo(9,0);g.lineTo(0,7);g.closePath()
+    g.moveTo(-4,0);g.lineTo(5,0)
+  }else if(style==='gold'){
+    g.moveTo(-6,-6);g.lineTo(3,0);g.lineTo(-6,6)
+    g.moveTo(-1,-6);g.lineTo(8,0);g.lineTo(-1,6)
+  }else{
+    g.moveTo(0,0);g.lineTo(12,0)
+  }
+  g.stroke()
+  g.restore()
+}
+function draw(dt){
+  ctx.setTransform(2,0,0,2,0,0)
+  ctx.clearRect(0,0,W,H)
+  for(let x=24;x<W;x+=24)for(let y=24;y<H;y+=24)disc(x,y,1,'#263657')
+  stroke(wall,H/2,W-wall,H/2,'#36426b')
+  ring(180,260,52,'#36426b')
+  const solo=game.mode==='practice'||game.mode==='circuit'
+  const inset=wall+cornerRadius
+  for(const [y,color] of [[wall,game.craft[1].color],[H-wall,game.craft[0].color]]){
+    stroke(inset,y,180-goal,y,'#7184ae',3);stroke(180+goal,y,W-inset,y,'#7184ae',3)
+    glow(color,15,()=>stroke(180-goal,y,180+goal,y,color,5))
+  }
+  stroke(wall,inset,wall,H-inset,'#7184ae',3)
+  stroke(W-wall,inset,W-wall,H-inset,'#7184ae',3)
+  for(const [x,y,angle] of [[inset,inset,Math.PI],[W-inset,inset,-Math.PI/2],
+    [W-inset,H-inset,0],[inset,H-inset,Math.PI/2]]){
+    ctx.beginPath()
+    ctx.arc(x,y,cornerRadius,angle,angle+Math.PI/2)
+    ctx.strokeStyle='#7184ae'
+    ctx.lineWidth=3
+    ctx.stroke()
+  }
+  for(const obstacle of activeField(game).bumpers){
+    disc(obstacle.x,obstacle.y,obstacle.r,'#3a2651')
+    ring(obstacle.x,obstacle.y,obstacle.r,'#d193ff',2)
+    ring(obstacle.x,obstacle.y,obstacle.r-7,'#78539d',1.5)
+  }
+  const targets=[...game.craft,game.puck]
+  if(!pos)pos=targets.map(body=>({x:body.x,y:body.y}))
+  targets.forEach((body,index)=>{
+    const blend=!online.connection||Math.hypot(pos[index].x-body.x,pos[index].y-body.y)>95?1:Math.min(1,dt*52)
+    pos[index].x+=(body.x-pos[index].x)*blend;pos[index].y+=(body.y-pos[index].y)*blend
+  })
+  const ours=pos[online.seat], color=game.craft[online.seat].color
+  if(!menu&&game.phase==='play'){
+    ctx.setLineDash([3,6])
+    ring(ours.x,ours.y,range,distance(ours,pos[2])<=range?color+'70':color+'25')
+    ctx.setLineDash([])
+  }
+  for(const effect of game.effects){
+    ctx.globalAlpha=1-effect.t/.34
+    ring(effect.x,effect.y,effect.push?20+effect.t*280:112-effect.t*260,effect.color,3)
+  }
+  ctx.globalAlpha=1
+  game.trail.forEach((point,i)=>{ctx.globalAlpha=i*.035;disc(point.x,point.y,3+i*.38,'#f9dc79')})
+  ctx.globalAlpha=1
+  for(let seat=0;seat<(solo?1:2);seat++){
+    const ship=pos[seat], shipColor=game.craft[seat].color
+    const aim=Math.atan2(pos[2].y-ship.y,pos[2].x-ship.x)
+    glow(shipColor,8,()=>drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim))
+  }
+  glow('#ffdb75',16,()=>disc(pos[2].x,pos[2].y,8,'#ffe382'))
+  bursts=bursts.filter(particle=>{
+    particle.life-=dt
+    if(particle.life<=0)return false
+    particle.x+=particle.vx*dt;particle.y+=particle.vy*dt
+    ctx.globalAlpha=Math.min(1,particle.life*2)
+    disc(particle.x,particle.y,2.5,particle.color)
+    return true
+  })
+  ctx.globalAlpha=1
+  if(!menu&&game.phase==='serve'){
+    ctx.font='800 22px system-ui';ctx.textAlign='center';ctx.fillStyle='#fff'
+    ctx.fillText(game.extra?'SUDDEN DEATH':'READY',W/2,H/2+6)
+  }
+}
+const axis=(positive,negative,extraPositive,extraNegative)=>Number(held.has(positive)||held.has(extraPositive))-Number(held.has(negative)||held.has(extraNegative))
+function inputState(){
+  const dx=axis('d','a','arrowright','arrowleft')
+  const dy=axis('s','w','arrowdown','arrowup')
+  const target=pointer&&(pointer.active!==false||performance.now()<pointer.until)?pointer:null
+  return {x:dx||dy?undefined:target?.x,y:dx||dy?undefined:target?.y,dx,dy,shot}
+}
+function frame(now){
+  const dt=clamp((now-frameTime)/1000,0,.05)
+  frameTime=now
+  if(pointer&&(game.phase!=='play'||pointer.active===false&&now>=pointer.until))pointer=null
+  if(practicing&&!anyDialog()){
+    const input=inputState()
+    practiceBank+=dt
+    while(practiceBank>=stepSeconds){step(game,[input]);practiceBank-=stepSeconds}
+  }
+  if(username&&refillDeadline!==null&&now>=refillDeadline&&now>=nextRefillCheck){
+    nextRefillCheck=now+4000
+    refreshProfile()
+  }
+  renderEvent()
+  draw(dt)
+  renderHud()
+  requestAnimationFrame(frame)
+}
+$('match-view').addEventListener('contextmenu',event=>event.preventDefault())
+$('match-view').addEventListener('selectstart',event=>event.preventDefault())
+const steerSurface=$('match-view')
+function movePointer(event){
+  if(pointer.relative){
+    pointer.x=clamp(pointer.originX+(event.clientX-pointer.startX)*pointer.scaleX,0,W)
+    pointer.y=clamp(pointer.originY+(event.clientY-pointer.startY)*pointer.scaleY,0,H)
+    return
+  }
+  const rect=canvas.getBoundingClientRect()
+  pointer.x=clamp((event.clientX-rect.left)*W/rect.width,0,W)
+  pointer.y=clamp((event.clientY-rect.top)*H/rect.height,0,H)
+}
+steerSurface.addEventListener('pointerdown',event=>{
+  if(event.button!==0||menu||game.phase!=='play'||pointer?.active||anyDialog())return
+  if(event.target.closest('button, a, input, select, .overlay'))return
+  const relative=event.pointerType==='touch'||event.pointerType==='pen'
+  if(!relative&&event.target!==canvas)return
+  const rect=canvas.getBoundingClientRect()
+  if(!rect.width||!rect.height)return
+  if(event.cancelable)event.preventDefault()
+  const craft=game.craft[online.seat]
+  pointer={id:event.pointerId,active:true,relative,originX:craft.x,originY:craft.y,
+    startX:event.clientX,startY:event.clientY,scaleX:W/rect.width*1.15,scaleY:H/rect.height*1.15}
+  steerSurface.setPointerCapture(event.pointerId)
+  movePointer(event)
+  syncOnline()
+})
+steerSurface.addEventListener('pointermove',event=>{
+  if(!pointer?.active||pointer.id!==event.pointerId)return
+  if(event.cancelable)event.preventDefault()
+  movePointer(event)
+  syncOnline()
+})
+for(const type of ['pointerup','pointercancel','lostpointercapture'])steerSurface.addEventListener(type,event=>{
+  if(!pointer?.active||pointer.id!==event.pointerId)return
+  if(type==='pointerup'&&pointer.relative){
+    movePointer(event)
+    pointer.active=false
+    pointer.until=performance.now()+175
+  }else{
+    pointer=null
+  }
+  syncOnline()
+})
+function shoot(push){
+  if(menu||game.phase!=='play'||anyDialog()||game.craft[online.seat].cd>0)return
+  shot={id:++shotSerial,push}
+  syncOnline()
+}
+window.addEventListener('keydown',event=>{
+  const key=event.key.toLowerCase()
+  if(menu||anyDialog()||!['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','q','e'].includes(key))return
+  event.preventDefault();held.add(key)
+  if(!event.repeat&&(key==='q'||key==='e'))shoot(key==='e')
+})
+window.addEventListener('keyup',event=>held.delete(event.key.toLowerCase()))
+window.addEventListener('blur',()=>{held.clear();pointer=null})
+$('replay').addEventListener('click',goReplay)
+for(const id of ['push','pull']){
+  const button=$(id)
+  const trigger=()=>shoot(id==='push')
+  button.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return
+    if(event.cancelable)event.preventDefault()
+    trigger()
+  })
+  button.addEventListener('click',event=>{if(event.detail===0)trigger()})
+}
+$('control-side').addEventListener('click',()=>{
+  buttonSide=buttonSide==='left'?'right':'left'
+  saved('button-side',buttonSide)
+  updateButtonSide()
+})
+updateButtonSide()
+$('sound').addEventListener('click',async()=>{
+  sound=!sound
+  if(sound){
+    try{audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();beep(440,.1)}
+    catch{sound=false}
+  }
+  write('sound',sound?'Sound on':'Sound off')
+  $('sound').setAttribute('aria-pressed',String(sound))
+})
+for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>closeDialog(button.dataset.close))
+
+async function api(route,data){
+  if(location.protocol==='file:')throw new Error('Launch the multiplayer download to connect to the game server.')
+  const controller=new AbortController()
+  const timer=setTimeout(()=>controller.abort(),3600)
+  try{
+    const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal})
+    const body=await response.json()
+    if(body.error)throw new Error(body.error)
+    if(!response.ok)throw new Error('Server unavailable.')
+    return body
+  }finally{clearTimeout(timer)}
+}
+function setProfile(key){
+  if(key){profile=key;saved('profile',key)}
+}
+function applyProfile(data){
+  if(!data.profile){
+    profile=null
+    username=null
+    coins=0
+    gear=[]
+    refillDeadline=null
+    saved('profile','')
+    return
+  }
+  setProfile(data.profile)
+  username=data.username
+  if(data.guest&&username)saved('guest-profile',profile)
+  coins=data.coins||0
+  refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
+  gear=data.gear||[]
+  ownsPack=data.ownsPack
+  checkoutReady=data.checkoutReady
+  cosmetic=safeCosmetic(saved('cosmetic'))
+  shipStyle=safeCosmetic(saved('ship-style'))
+  write('rating',username?'Rating '+data.rating:'')
+  updateShop()
+}
+async function refreshProfile(){
+  if(location.protocol==='file:'||!profile)return
+  try{applyProfile(await api('/profile',{profile}))}catch{}
+}
+function openAccount(){
+  $('account-form').hidden=true
+  $('account-choices').hidden=Boolean(username)
+  $('switch-account').hidden=!username
+  write('account-summary',username?'Playing as '+username:'Choose how you want to play.')
+  write('account-message','')
+  showDialog('account-dialog')
+}
+async function chooseAccount(action){
+  if(action==='guest'){
+    const guest=saved('guest-profile')
+    if(guest){
+      try{
+        const data=await api('/profile',{profile:guest})
+        if(data.username){applyProfile(data);closeDialog('account-dialog');openLobby();return}
+      }catch{}
+    }
+  }
+  accountMode=action
+  $('account-form').hidden=false
+  $('password-row').hidden=action==='guest'
+  $('password').required=action!=='guest'
+  $('password').autocomplete=action==='register'?'new-password':'current-password'
+  $('password').value=''
+  write('account-submit',action==='guest'?'Create Guest':action==='register'?'Create Account':'Sign In')
+  write('account-message',action==='guest'?'This guest profile is saved in this browser on this device.':'')
+  $('username').focus()
+}
+$('account').addEventListener('click',openAccount)
+$('guest-account').addEventListener('click',()=>chooseAccount('guest'))
+$('register-account').addEventListener('click',()=>chooseAccount('register'))
+$('login-account').addEventListener('click',()=>chooseAccount('login'))
+$('switch-account').addEventListener('click',async()=>{
+  if(activeMatch()){write('account-message','Finish your match before switching accounts.');return}
+  if(online.connection){
+    try{await api('/room',{action:'leave',token:online.connection.token})}catch{}
+    resetOnline()
+  }
+  applyProfile({})
+  ownsPack=false
+  checkoutReady=false
+  cosmetic='classic'
+  shipStyle='classic'
+  openAccount()
+})
+$('account-form').addEventListener('submit',async event=>{
+  event.preventDefault()
+  const button=$('account-submit')
+  button.disabled=true
+  try{
+    applyProfile(await api('/account',{action:accountMode,username:$('username').value,password:$('password').value,profile}))
+    $('password').value=''
+    closeDialog('account-dialog')
+    openLobby()
+  }catch(error){write('account-message',error.message)}
+  finally{button.disabled=false}
+})
+function resetOnline(){
+  online.connection=null
+  online.seat=0
+  online.matchId=null
+  online.state=null
+  online.ranked=false
+  online.rematch=false
+  online.errors=0
+  $('field-picker').disabled=false
+  $('host').disabled=$('ranked').disabled=$('join-submit').disabled=false
+  $('copy').hidden=true
+  write('room-code','')
+  write('room-message','')
+  setMenu()
+}
+async function connect(action){
+  if(online.connecting||online.connection)return
+  online.connecting=true
+  write('room-message','Connecting…')
+  try{
+    const result=await api('/room',{action,profile,field:currentField,code:$('room-input').value.trim().toUpperCase()})
+    setProfile(result.profile)
+    clearPlayState()
+    online.connection=result
+    online.ranked=action==='rank'
+    menu=false
+    practicing=false
+    $('field-picker').disabled=true
+    write('room-code',result.code||'')
+    $('copy').hidden=!result.code
+    write('room-message',result.code?'Share this code with your friend.':'Looking for an opponent?')
+    await syncOnline()
+  }catch(error){write('room-message',error.message)}
+  finally{online.connecting=false}
+}
+async function syncOnline(){
+  if(!online.connection||online.busy)return
+  online.busy=true
+  const connection=online.connection
+  try{
+    const state=await api('/room',{action:'sync',token:connection.token,input:inputState(),look:{ship:shipStyle,goal:cosmetic},rematch:online.rematch})
+    if(connection!==online.connection)return
+    online.errors=0
+    online.state=state
+    if(state.notice)online.rematch=false
+    if(state.result?.coins&&rewardMatch!==state.matchId){
+      rewardMatch=state.matchId
+      coins=state.result.balance
+    }
+    if(!state.game){
+      if(online.rematch&&state.queued){
+        online.matchId=null
+        online.rematch=false
+        write('room-message','Looking for a rival?')
+      }
+      return
+    }
+    if(state.matchId!==online.matchId){
+      clearPlayState()
+      online.matchId=state.matchId
+      online.seat=state.seat
+      online.rematch=false
+      game=state.game
+      $('field-picker').value=String(game.field)
+      write('room-message','You are '+(state.seat===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
+      closeDialog('lobby-dialog')
+    }else game=state.game
+    if(online.rematch&&state.queued){
+      online.matchId=null
+      online.rematch=false
+      write('room-message','Looking for a rival?')
+    }
+  }catch(error){
+    if(connection===online.connection&&++online.errors>=7){
+      resetOnline()
+      write('room-message','Connection lost. Create or join another room.')
+      showDialog('lobby-dialog')
+    }
+  }finally{online.busy=false}
+}
+function activeMatch(){
+  return Boolean(online.matchId&&game.phase!=='over')
+}
+function openLobby(){
+  if(!username&&location.protocol!=='file:'){openAccount();return}
+  write('selected-field',online.matchId?activeField(game).name:'Friend room course · '+fields[currentField].name)
+  $('host').disabled=$('ranked').disabled=$('join-submit').disabled=activeMatch()
+  showDialog('lobby-dialog')
+}
+$('lobby').addEventListener('click',openLobby)
+$('home-play').addEventListener('click',openLobby)
+$('home-practice').addEventListener('click',startPractice)
+$('home-after-match').addEventListener('click',async()=>{
+  if(!practicing&&game.phase!=='over')return
+  const connection=online.connection
+  resetOnline()
+  if(connection)try{await api('/room',{action:'leave',token:connection.token})}catch{}
+  refreshProfile()
+})
+$('host').addEventListener('click',()=>connect('host'))
+$('ranked').addEventListener('click',()=>connect('rank'))
+$('join').addEventListener('submit',event=>{event.preventDefault();connect('join')})
+$('copy').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('room-code').textContent);write('room-message','Room code copied.')}
+  catch{write('room-message','Share the room code shown above.')}
+})
+setInterval(syncOnline,35)
+
+function updateShop(){
+  $('buy').hidden=ownsPack
+  write('shop-coins','· '+coins+' coins')
+  const style=selectedPreview?.style
+  const cost=coinPrices[style]
+  const canEquip=Boolean(style&&safeCosmetic(style)===style)
+  $('preview-controls').hidden=!selectedPreview||!canEquip&&!cost
+  $('equip-preview').hidden=!canEquip
+  $('unlock-preview').hidden=!cost||canEquip
+  $('unlock-preview').disabled=!username||coins<cost
+  if(cost)write('unlock-preview','Unlock for '+cost+' coins')
+  $('equip-standard-ship').disabled=shipStyle==='classic'
+  $('buy').disabled=!checkoutReady
+  write('buy',checkoutReady?'Buy pack':'Checkout unavailable')
+  for(const button of document.querySelectorAll('[data-equip]')){
+    button.hidden=button.dataset.equip!=='classic'&&!ownsPack
+    button.disabled=button.dataset.equip===cosmetic
+  }
+}
+function showShop(){
+  $('preview').hidden=true
+  selectedPreview=null
+  updateShop()
+  write('shop-message',ownsPack?'Founders pack unlocked.':
+    checkoutReady?'One payment. Every match and course stays free.':
+    'Cosmetic previews are available. Checkout is not connected in this build.')
+  showDialog('shop-dialog')
+}
+for(const id of ['shop','featured-pack','result-shop'])$(id).addEventListener('click',showShop)
+for(const button of document.querySelectorAll('[data-equip]'))button.addEventListener('click',()=>{
+  cosmetic=safeCosmetic(button.dataset.equip)
+  saved('cosmetic',cosmetic)
+  updateShop()
+  write('shop-message','Celebration equipped.')
+})
+let previewRun=0
+for(const button of document.querySelectorAll('[data-preview]'))button.addEventListener('click',()=>{
+  selectedPreview={type:'goal',style:button.dataset.preview}
+  updateShop()
+  const preview=$('preview'),g=preview.getContext('2d'), colors=themeColors[button.dataset.preview]
+  preview.hidden=false
+  const id=++previewRun,start=performance.now()
+  function animate(now){
+    if(id!==previewRun)return
+    const t=Math.min(1,(now-start)/760)
+    g.clearRect(0,0,320,84)
+    g.globalAlpha=1-t*.8
+    for(let i=0;i<32;i++){
+      const angle=i*Math.PI/16
+      g.fillStyle=colors[i%colors.length]
+      g.beginPath()
+      g.arc(160+Math.cos(angle)*t*(40+(i*13)%110),42+Math.sin(angle)*t*(20+(i*7)%23),3,0,Math.PI*2)
+      g.fill()
+    }
+    g.globalAlpha=1
+    if(t<1)requestAnimationFrame(animate)
+  }
+  requestAnimationFrame(animate)
+})
+for(const button of document.querySelectorAll('[data-ship-preview]'))button.addEventListener('click',()=>{
+  previewRun++
+  selectedPreview={type:'ship',style:button.dataset.shipPreview}
+  const preview=$('preview'),g=preview.getContext('2d')
+  preview.hidden=false
+  g.clearRect(0,0,320,84)
+  drawShip(g,160,42,'#67f7ff',selectedPreview.style,-.25,2.4)
+  updateShop()
+})
+$('equip-preview').addEventListener('click',()=>{
+  if(!selectedPreview||safeCosmetic(selectedPreview.style)!==selectedPreview.style)return
+  if(selectedPreview.type==='ship'){
+    shipStyle=safeCosmetic(selectedPreview.style)
+    saved('ship-style',shipStyle)
+    write('shop-message','Ship equipped.')
+  }else{
+    cosmetic=safeCosmetic(selectedPreview.style)
+    saved('cosmetic',cosmetic)
+    write('shop-message','Goal celebration equipped.')
+  }
+  updateShop()
+})
+$('unlock-preview').addEventListener('click',async()=>{
+  const style=selectedPreview?.style
+  if(!username||!coinPrices[style]||coins<coinPrices[style])return
+  $('unlock-preview').disabled=true
+  try{
+    applyProfile(await api('/redeem',{profile,gear:style}))
+    write('shop-message','Unlocked. You can equip it now.')
+  }catch(error){write('shop-message',error.message);updateShop()}
+})
+$('equip-standard-ship').addEventListener('click',()=>{
+  shipStyle='classic'
+  saved('ship-style',shipStyle)
+  updateShop()
+  write('shop-message','Standard ship equipped.')
+})
+$('buy').addEventListener('click',async()=>{
+  if(!checkoutReady||ownsPack)return
+  $('buy').disabled=true
+  try{
+    const data=await api('/checkout',{profile})
+    location.assign(data.url)
+  }catch(error){write('shop-message',error.message);$('buy').disabled=false}
+})
+async function checkPaymentReturn(){
+  const query=new URLSearchParams(location.search)
+  if(!query.has('checkout'))return
+  history.replaceState(null,'',location.pathname)
+  await refreshProfile()
+  showShop()
+  write('shop-message',ownsPack?'Payment confirmed. Your pack is ready.':
+    query.get('checkout')==='cancel'?'Checkout canceled.':'Payment is being confirmed. Reopen the shop shortly.')
+}
+setMenu()
+requestAnimationFrame(frame)
+refreshProfile()
+checkPaymentReturn()
+

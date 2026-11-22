@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0c18">
+<title>Magnet Mayhem</title>
+<style>
+:root{color-scheme:dark;--bg:#0a0c18;--paper:#f3f6ff;--muted:#b8c4e1;--line:#354362;--panel:#151d37;--cyan:#76f5ff;--pink:#ff9ac9;font:600 16px system-ui}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1b2041,var(--bg) 65%);color:var(--paper);overscroll-behavior:none}
+main{width:min(100%,470px);margin:auto;padding:max(8px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+header,.score,.controls,.coursebar,.row{display:flex;align-items:center;gap:8px}header,.score,.coursebar{justify-content:space-between}header{margin-bottom:8px}
+h1{font-size:clamp(18px,5vw,25px);margin:0 auto 0 0;letter-spacing:-.055em;font-weight:950}
+h2{margin:0;font-size:clamp(25px,7vw,37px);letter-spacing:-.045em}.overlay p,dialog p{font-size:14px;line-height:1.45;color:#e0e6ff;margin:8px auto 12px}
+.score,.coursebar{margin-bottom:8px}.score{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+#score0{color:var(--cyan)}#score1{color:var(--pink)}#status{font-size:13px;text-align:center;color:#d0daf7}
+label{font-size:14px;color:var(--muted)}button,select,input{font:inherit;min-height:44px;min-width:0;border:1px solid #44527a;border-radius:9px;background:#202b50;color:#fff;padding:7px 11px}
+button{cursor:pointer;touch-action:manipulation}button:hover:not(:disabled){filter:brightness(1.17)}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid white;outline-offset:2px}button:disabled{opacity:.55;cursor:default}
+.coursebar select{flex:1}.coursebar button{white-space:nowrap}header button{padding-inline:8px;font-size:.86rem}
+.arena{position:relative;width:min(100%,max(260px,calc((100dvh - 222px)*.6923)));margin:auto}
+canvas{display:block;width:100%;aspect-ratio:360/520;touch-action:none;border:1px solid #465681;border-radius:14px;background:#111831}
+.overlay{position:absolute;inset:0;display:grid;place-content:center;text-align:center;padding:16px;background:#080d21cb;border-radius:14px}.overlay p{max-width:28ch}.overlay button+button{margin-top:7px}.overlay[hidden],[hidden]{display:none!important}
+.primary{background:var(--cyan);color:#0c1426;border-color:var(--cyan);font-weight:850}.controls{margin-top:8px}.controls button{flex:1;font-weight:850}.controls button:first-child{color:var(--cyan)}.controls button:last-child{color:var(--pink)}
+.hint{font-size:13px;color:var(--muted);text-align:center;margin:6px 0 0}.subtle{background:transparent;font-size:.84rem}
+dialog{color:var(--paper);width:min(420px,calc(100% - 24px));border:1px solid var(--line);border-radius:15px;background:#141d37;padding:18px;max-height:90dvh}dialog::backdrop{background:#050712bb}
+dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;flex-wrap:wrap}.row>*{flex:1}dialog input{width:110px}#room-input{text-transform:uppercase}#score0,#score1{overflow-wrap:anywhere}#status{min-width:3.4em}
+.card{padding:10px;margin:9px 0;background:#20284a;border:1px solid #44527a;border-radius:10px}.card p{margin:4px 0}.card strong{display:block}
+#room-message,#shop-message,#account-message{overflow-wrap:anywhere;margin:8px 0;min-height:1.1em}.tag{font-size:.8rem;color:var(--muted)}#room-code{letter-spacing:.18em;color:var(--cyan);font-size:1.5rem}
+@media(max-width:440px){main>header{flex-wrap:wrap}main>header h1{flex:1 0 100%}main>header button{min-height:36px}.arena{width:min(100%,max(260px,calc((100dvh - 246px)*.6923)))}}
+@media(max-width:365px){h1{font-size:17px}.coursebar button,header button{font-size:12px;padding-inline:7px}.coursebar label{display:none}}
+
+:root{--cyan:#79ffea;--pink:#ff78ab}
+.game-header{padding:10px 0;border-bottom:1px solid #283659}
+.game-header h1{letter-spacing:.055em;font-size:clamp(15px,4vw,20px)}
+.game-header button,.match-nav button{background:#141d36}
+.hero{position:relative;isolation:isolate;overflow:hidden;min-height:227px;margin:14px 0;border:1px solid #48568f;border-radius:20px;background:radial-gradient(ellipse at 74% 39%,#353273,#172340 50%,#101629 78%)}
+.hero-arena{position:absolute;inset:7% 4% 3% 30%;transform:rotate(-27deg) skew(-9deg);border:2px solid #637aa1;border-radius:29px;background:radial-gradient(circle,#616fbc 1px,transparent 1.5px) 0 0/14px 14px,linear-gradient(115deg,#141931,#253157);box-shadow:inset 0 0 30px #6476cf50,0 0 45px #7064dd44}
+.hero-arena::before,.hero-arena::after{content:'';position:absolute;inset:0 auto 0 50%;border-left:1px solid #7280be80}
+.hero-arena::after{inset:31% 35%;border:1px solid #8994ce;border-radius:50%}
+.hero-ship,.hero-puck{display:block;position:absolute;z-index:1;border-radius:50%}
+.hero-ship{width:34px;aspect-ratio:1;border:7px solid currentColor;background:#202949;box-shadow:0 0 22px currentColor}
+.hero-ship.pink{right:12%;top:20%;color:var(--pink)}.hero-ship.cyan{left:29%;bottom:19%;color:var(--cyan)}
+.hero-puck{width:13px;height:13px;left:55%;top:43%;background:#ffe88d;box-shadow:0 0 17px #fedc6c}
+.hero-copy{position:absolute;bottom:0;left:0;right:0;padding:55px 17px 16px;background:linear-gradient(transparent,#0a1024 76%)}
+.hero-copy h2{font-weight:950;font-size:clamp(31px,9vw,44px);line-height:1.05}.hero-copy p{margin:6px 0 0;color:#c6d4eb;font-size:14px}
+.home-actions{display:grid;grid-template-columns:2fr 1fr;gap:9px;margin-top:9px}.home-actions button{min-height:50px}
+.featured{width:100%;margin-top:12px;display:flex;gap:12px;align-items:center;text-align:left;background:#171d38;border-color:#575485;padding:10px 12px}
+.featured small{display:block;color:var(--muted);font-size:.8rem;margin-top:3px}.featured b{margin-left:auto;color:#fbd27d}.pack-mark{color:#ffe194;font-size:30px}
+.coin-total{color:#fbd27d;font-size:.84rem;white-space:nowrap}.match-nav{display:flex;justify-content:flex-end;margin:7px 0}.match-nav button{min-height:36px}
+.swatch-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.swatch-grid button{display:flex;align-items:center;gap:7px;text-align:left;font-size:.85rem}
+.ship-swatch,.burst-swatch{display:inline-grid;place-items:center;width:23px;height:23px;flex:0 0 23px}.ship-swatch{border-radius:50%;border:4px solid currentColor;background:#161b34}
+.ship-swatch.prism,.burst-swatch.prism{color:#c5a1ff}.ship-swatch.gold,.burst-swatch.gold{color:#ffd182}.burst-swatch{font-size:23px}
+.reward-clock{margin-top:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 13px;border:1px solid #3c496a;border-radius:10px;background:#131c36}.reward-clock b{color:#ffe194;font-variant-numeric:tabular-nums}.home-actions{grid-template-columns:1fr 1fr}.home-actions .primary{grid-column:1/-1}#preview{aspect-ratio:320/84}
+@media(max-width:365px){.featured small{font-size:.73rem}.swatch-grid button{padding-inline:6px}}
+.match-stage{--action-size:clamp(54px,13.5vw,64px);display:grid;grid-template-columns:var(--action-size) minmax(0,1fr);grid-template-areas:"actions rink";align-items:center;gap:8px}
+.match-stage .arena{grid-area:rink;width:min(100%,calc(max(250px,100dvh - 170px)*.6923));max-width:100%;margin:0 auto}
+.magnet-buttons{grid-area:actions;justify-self:center;align-self:center;display:flex;flex-direction:column;gap:18px}
+.match-stage[data-side="right"]{grid-template-columns:minmax(0,1fr) var(--action-size);grid-template-areas:"rink actions"}
+#match-view{touch-action:none}
+#match-view,#match-view *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.match-stage,.match-stage *{-webkit-tap-highlight-color:transparent}
+.match-stage[data-overlay="true"] .magnet-buttons{visibility:hidden}
+.match-stage .magnet-buttons button{display:grid;place-items:center;position:relative;flex:none;width:var(--action-size);height:var(--action-size);min-height:0;border-radius:50%;padding:0;color:#10182e;border:2px solid #edf8ff80;font-size:.95rem;font-weight:900;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.match-stage .magnet-buttons #push{background:#79ddff;box-shadow:0 0 12px #79ddff55}
+.match-stage .magnet-buttons #pull{background:#ff85bc;box-shadow:0 0 12px #ff85bc55}
+.match-stage .magnet-buttons button[aria-disabled="true"]{opacity:.52}
+.match-stage .magnet-buttons button:active{transform:scale(.94)}
+.match-nav{gap:7px}
+.touch-hint{display:none}
+@media(min-width:600px){main[data-match="true"]{width:min(100%,590px)}}
+@media(pointer:coarse){
+  .keyboard-hint{display:none}
+  .touch-hint{display:inline}
+  main[data-match="true"] .game-header{flex-wrap:nowrap;gap:6px;padding-block:6px}
+  main[data-match="true"] .game-header h1{flex:1 0 0;font-size:.79rem;line-height:1.05}
+  main[data-match="true"] .game-header button{font-size:.74rem;padding-inline:6px}
+  main[data-match="true"] .coin-total{font-size:.75rem}
+  .match-nav{margin-block:5px}
+}
+@media(max-width:540px) and (orientation:portrait){
+  main[data-match="true"]{padding-inline:max(8px,env(safe-area-inset-left)) max(8px,env(safe-area-inset-right))}
+  .keyboard-hint{display:none}
+  .touch-hint{display:inline}
+}
+</style>
+</head>
+<body>
+<main id="game-root">
+<header class="game-header"><h1>MAGNET MAYHEM</h1><button id="sound" aria-pressed="false">Sound off</button><button id="account">Account</button><span id="coin-total" class="coin-total">0 coins</span></header>
+<section id="home-view" aria-label="Main menu">
+<div class="hero">
+  <div class="hero-arena" aria-hidden="true"><span class="hero-ship pink"></span><span class="hero-puck"></span><span class="hero-ship cyan"></span></div>
+  <div class="hero-copy"><h2>Own the puck.</h2><p>First to three goals wins.</p></div>
+</div>
+<div class="coursebar">
+<label for="field-picker">Course</label><select id="field-picker" aria-label="Course"></select>
+</div>
+<div class="home-actions"><button id="home-play" class="primary">Play Online</button><button id="home-practice">Free Practice</button><button id="shop">Shop</button></div>
+<div class="reward-clock"><span>Hourly refill ? 100 coins</span><b id="refill-clock">Sign in to start</b></div>
+<button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">✧</span><span><strong>Neon Founders Pack</strong><small>2 ship styles · 2 goal celebrations</small></span><b>$2.99</b></button>
+</section>
+<section id="match-view" hidden>
+<div class="match-nav"><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
+<div class="match-stage" id="match-stage">
+<div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push">Push</button><button type="button" id="pull">Pull</button></div>
+<div class="arena">
+<canvas id="field" width="720" height="1040" aria-label="Magnet Mayhem arena"></canvas>
+<div class="overlay" id="overlay">
+<h2 id="title">Own the puck</h2>
+<p id="message">Drag to steer. Pull the puck close, then aim a push into the opposing goal.</p>
+<button class="primary" id="replay">Open Online</button>
+<button class="subtle" id="result-shop" hidden>Browse goal effects</button>
+</div>
+</div>
+</div>
+<p class="hint" id="hint">WASD / arrows · Q pull · E push</p>
+</section>
+</main>
+
+<dialog id="lobby-dialog">
+<header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
+<p id="selected-field"></p>
+<p id="rating"></p>
+<p>Competitive matches stake 30 Arena Coins.</p>
+<div class="row"><button class="primary" id="host">Create Room</button><button id="ranked">Ranked Game</button></div>
+<form id="join" class="row"><input id="room-input" maxlength="6" placeholder="Room code" aria-label="Room code" required pattern="[A-Za-z0-9]{6}"><button id="join-submit">Join Friend</button></form>
+<p><strong id="room-code"></strong> <button id="copy" hidden>Copy room code</button></p>
+<p id="room-message" role="status"></p>
+</dialog>
+
+<dialog id="account-dialog">
+<header><h2>Player account</h2><button data-close="account-dialog">Close</button></header>
+<p id="account-summary"></p>
+<div id="account-choices" class="row">
+<button id="guest-account">Play as Guest</button><button id="register-account">Create Account</button><button id="login-account">Sign In</button>
+</div>
+<form id="account-form" hidden>
+<label for="username">Username</label>
+<div class="row"><input id="username" required maxlength="20" minlength="3" autocomplete="username"></div>
+<div id="password-row"><label for="password">Password</label><div class="row"><input id="password" type="password" minlength="8" maxlength="128"></div></div>
+<button id="account-submit" class="primary">Continue</button>
+</form>
+<button id="switch-account" hidden>Switch Account</button>
+<p id="account-message" role="status"></p>
+</dialog>
+
+<dialog id="shop-dialog">
+<header><h2>Shop</h2><button data-close="shop-dialog">Close</button></header>
+<div class="card">
+<strong>Arena Coin rewards <span class="tag" id="shop-coins"></span></strong>
+<p>Win a competitive match to earn 30 coins. A loss costs 30. Free Practice has no coin stake.</p>
+<div class="swatch-grid">
+<button data-ship-preview="ice"><span class="ship-swatch" style="color:#8ef0ff" aria-hidden="true"></span>Ice ship · 90</button>
+<button data-preview="comet"><span class="burst-swatch" style="color:#93eaff" aria-hidden="true">✺</span>Comet burst · 150</button>
+</div>
+</div>
+<div class="card pack-card">
+<strong>Neon Founders Pack <span class="tag" id="price">· $2.99</span></strong>
+<p>Two hovercraft styles, two goal celebrations, and a Founders badge on your results screen.</p>
+<div class="swatch-grid">
+  <button data-ship-preview="prism"><span class="ship-swatch prism" aria-hidden="true"></span>Prism ship</button>
+  <button data-ship-preview="gold"><span class="ship-swatch gold" aria-hidden="true"></span>Gold ship</button>
+  <button data-preview="prism"><span class="burst-swatch prism" aria-hidden="true">✺</span>Rainbow burst</button>
+  <button data-preview="gold"><span class="burst-swatch gold" aria-hidden="true">✷</span>Gold fireworks</button>
+</div>
+
+<div class="row"><button id="buy" class="primary" disabled>Checkout unavailable</button></div>
+</div>
+<div class="card">
+<strong>Starter gear</strong><p>Standard ship and celebration.</p>
+<div class="row"><button data-equip="classic">Equip celebration</button><button id="equip-standard-ship">Equip ship</button></div>
+</div>
+<canvas id="preview" width="320" height="84" hidden aria-label="Goal celebration preview"></canvas><div id="preview-controls" class="row" hidden><button id="equip-preview">Equip</button><button id="unlock-preview" class="primary" hidden>Unlock</button></div><p id="shop-message" role="status"></p>
+</dialog>
+
+
+<script>
+/* ENGINE */
+</script>
+<script>
+/* CLIENT */
+</script>
+</body>
+</html>
+
+
+
