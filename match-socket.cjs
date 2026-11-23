@@ -38,6 +38,9 @@ function attachMatchSockets(server, roomAction, sessions){
         active.set(state.token,state)
       }
       state.received=now
+      if(Number.isSafeInteger(data.ping)&&data.ping>=0&&ws.bufferedAmount<32000){
+        ws.send(JSON.stringify({pong:data.ping}))
+      }
       state.input=data.input
       state.look=data.look
       state.rematch=Boolean(data.rematch)

@@ -14,6 +14,7 @@ let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=fals
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let backdrop=null, backdropKey=null, localPose=null
 let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
+let pingMs=null, pingUpdated=0, lastPing=0, pingSerial=0, pingProbe=null
 
 function saved(key,value){
   try {
@@ -165,6 +166,14 @@ function renderHud(){
     solo?(cachedStatus||activeField(game).name):
     game.extra?'Sudden death':cachedStatus||clockText)
   const overlay=menu||game.phase==='over'||Boolean(online.connection&&!online.matchId)
+  const playing=!overlay&&!anyDialog()
+  const locked=String(playing)
+  if(document.documentElement.dataset.gameLocked!==locked)document.documentElement.dataset.gameLocked=locked
+  const ping=$('ping-display')
+  ping.hidden=!online.connection||!online.matchId
+  const freshPing=pingMs!==null&&performance.now()-pingUpdated<4500
+  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping —')
+  ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
   $('overlay').hidden=!overlay
   $('match-stage').dataset.overlay=String(overlay)
   $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
@@ -177,7 +186,10 @@ function renderHud(){
     let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
       game.winner===seat?'You win!':'Opponent wins'
     let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
-    if(online.state?.result?.coins)message+=' · +'+online.state.result.coins+' Arena Coins'
+    if(online.state?.result?.coins){
+      const change=online.state.result.coins
+      message+=' · '+(change>0?'+':'')+change+' Arena Coins'
+    }
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
     if(ownsPack&&game.winner===seat)message+=' · Founders'
@@ -191,7 +203,13 @@ function renderHud(){
     const button=$(id)
     const value=String(!ready)
     if(button.getAttribute('aria-disabled')!==value)button.setAttribute('aria-disabled',value)
+    const timer=$(id+'-time')
+    timer.hidden=!live||craft.cd<=0
+    if(!timer.hidden)write(id+'-time',cooldownLabel(craft.cd))
   }
+}
+function cooldownLabel(seconds){
+  return (seconds>1?Math.ceil(seconds):(Math.ceil(seconds*10)/10).toFixed(1))+'s'
 }
 function stroke(x,y,xx,yy,color,width=1,g=ctx){
   g.beginPath();g.moveTo(x,y);g.lineTo(xx,yy);g.strokeStyle=color;g.lineWidth=width;g.stroke()
@@ -356,6 +374,18 @@ function frame(now){
 }
 $('match-view').addEventListener('contextmenu',event=>event.preventDefault())
 $('match-view').addEventListener('selectstart',event=>event.preventDefault())
+$('match-view').addEventListener('dblclick',event=>event.preventDefault())
+function blockMatchZoom(event){
+  if(document.documentElement.dataset.gameLocked==='true'&&event.cancelable)event.preventDefault()
+}
+for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,blockMatchZoom,{passive:false})
+let lastActionTap=0
+$('match-view').addEventListener('touchend',event=>{
+  if(!event.target.closest('.magnet-buttons button'))return
+  const now=performance.now()
+  if(lastActionTap&&now-lastActionTap<350)blockMatchZoom(event)
+  lastActionTap=now
+},{passive:false})
 const steerSurface=$('match-view')
 function movePointer(event){
   if(pointer.relative){
@@ -543,6 +573,9 @@ function resetOnline(){
   closeMatchStream()
   streamFailures=0
   streamRetry=0
+  pingMs=null
+  pingProbe=null
+  lastPing=0
   online.connection=null
   online.seat=0
   online.matchId=null
@@ -585,7 +618,13 @@ function closeMatchStream(){
   const old=matchSocket
   matchSocket=null
   streamReady=false
+  pingProbe=null
   old?.close()
+}
+function recordPing(elapsed){
+  if(!Number.isFinite(elapsed)||elapsed<0||elapsed>5000)return
+  pingMs=pingMs===null?elapsed:pingMs*.65+elapsed*.35
+  pingUpdated=performance.now()
 }
 function openMatchStream(){
   if(typeof WebSocket==='undefined'||matchSocket||!online.connection||streamFailures>=3)return
@@ -602,6 +641,13 @@ function openMatchStream(){
       if(matchSocket!==socket||online.connection!==connection)return
       let state
       try{state=JSON.parse(event.data)}catch{return}
+      if(Number.isSafeInteger(state.pong)){
+        if(pingProbe?.id===state.pong){
+          recordPing(performance.now()-pingProbe.started)
+          pingProbe=null
+        }
+        return
+      }
       if(state.error){
         closeMatchStream()
         streamRetry=performance.now()+1000
@@ -673,7 +719,13 @@ async function syncOnline(urgent=false){
   if(streamReady&&matchSocket?.readyState===1){
     if(matchSocket.bufferedAmount<4000){
       lastSync=now
-      matchSocket.send(JSON.stringify(matchInput()))
+      const data=matchInput()
+      if(now-lastPing>=2000||!lastPing){
+        lastPing=now
+        pingProbe={id:++pingSerial,started:now}
+        data.ping=pingProbe.id
+      }
+      matchSocket.send(JSON.stringify(data))
     }
     return
   }
@@ -684,6 +736,7 @@ async function syncOnline(urgent=false){
   try{
     const state=await api('/room',matchInput())
     if(connection!==online.connection||streamReady)return
+    recordPing(performance.now()-now)
     applyOnlineState(state)
   }catch(error){
     if(connection===online.connection&&!streamReady&&++online.errors>=7){

@@ -56,11 +56,15 @@ dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;fle
 .match-stage .arena{grid-area:rink;width:min(100%,calc(max(250px,100dvh - 170px)*.6923));max-width:100%;margin:0 auto}
 .magnet-buttons{grid-area:actions;justify-self:center;align-self:center;display:flex;flex-direction:column;gap:18px}
 .match-stage[data-side="right"]{grid-template-columns:minmax(0,1fr) var(--action-size);grid-template-areas:"rink actions"}
+html[data-game-locked="true"],html[data-game-locked="true"] body{touch-action:none;overscroll-behavior:none}
 #match-view{touch-action:none}
-#match-view,#match-view *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.ping-display{margin-right:auto;white-space:nowrap;align-self:center;font-size:.8rem;color:#9de6cc;font-variant-numeric:tabular-nums}
+.ping-display[data-quality="fair"]{color:#fbd27d}.ping-display[data-quality="poor"]{color:#ff9abc}.ping-display[data-quality="unknown"]{color:var(--muted)}
+.action-time{font-size:.69rem;line-height:1;font-variant-numeric:tabular-nums}
+html[data-game-locked="true"] main,#match-view,#match-view *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .match-stage,.match-stage *{-webkit-tap-highlight-color:transparent}
 .match-stage[data-overlay="true"] .magnet-buttons{visibility:hidden}
-.match-stage .magnet-buttons button{display:grid;place-items:center;position:relative;flex:none;width:var(--action-size);height:var(--action-size);min-height:0;border-radius:50%;padding:0;color:#10182e;border:2px solid #edf8ff80;font-size:.95rem;font-weight:900;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.match-stage .magnet-buttons button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;position:relative;flex:none;width:var(--action-size);height:var(--action-size);min-height:0;border-radius:50%;padding:0;color:#10182e;border:2px solid #edf8ff80;font-size:.95rem;font-weight:900;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 .match-stage .magnet-buttons #push{background:#79ddff;box-shadow:0 0 12px #79ddff55}
 .match-stage .magnet-buttons #pull{background:#ff85bc;box-shadow:0 0 12px #ff85bc55}
 .match-stage .magnet-buttons button[aria-disabled="true"]{opacity:.52}
@@ -100,10 +104,10 @@ dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;fle
 <button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">✧</span><span><strong>Neon Founders Pack</strong><small>2 ship styles · 2 goal celebrations</small></span><b>$2.99</b></button>
 </section>
 <section id="match-view" hidden>
-<div class="match-nav"><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<div class="match-nav"><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
 <div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
 <div class="match-stage" id="match-stage">
-<div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push">Push</button><button type="button" id="pull">Pull</button></div>
+<div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
 <div class="arena">
 <canvas id="field" width="720" height="1040" aria-label="Magnet Mayhem arena"></canvas>
 <div class="overlay" id="overlay">
@@ -183,6 +187,7 @@ dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;fle
 </script>
 </body>
 </html>
+
 
 
 
