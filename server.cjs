@@ -24,6 +24,8 @@ try{
 }catch(error){if(error.code!=='ENOENT')throw error}
 const usernames=new Map()
 for(const [key,account] of profiles)if(account.username)usernames.set(account.username.toLowerCase(),key)
+const emails=new Map()
+for(const [key,account] of profiles)if(account.email)emails.set(account.email,key)
 const loginLimits=new Map()
 const sessions=new Map(), inviteRooms=new Map(), matches=new Map(), queued=new Map()
 const identities=new Map(), addressLimits=new Map()
@@ -64,49 +66,91 @@ function canEnter(profile){
 function profileState(key){
   const account=profiles.get(key)
   refreshCoins(account)
-  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,coins:account.coins||0,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack,checkoutReady:checkoutEnabled()}
+  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack,checkoutReady:checkoutEnabled()}
+}
+function saveAccount(key,account){
+  const prior=profiles.get(key)
+  const oldName=prior?.username?.toLowerCase()
+  const newName=account.username.toLowerCase()
+  if(oldName&&oldName!==newName)usernames.delete(oldName)
+  profiles.set(key,account)
+  usernames.set(newName,key)
+  if(account.email)emails.set(account.email,key)
+  try{persist()}catch(error){
+    usernames.delete(newName)
+    if(account.email&&account.email!==prior?.email)emails.delete(account.email)
+    if(prior){
+      profiles.set(key,prior)
+      if(oldName)usernames.set(oldName,key)
+    }else profiles.delete(key)
+    throw error
+  }
+  return profileState(key)
+}
+function guestProfile(data){
+  const known=existingKey(data.profile)||existingKey(data.device)
+  if(known&&profiles.get(known).username)return profileState(known)
+  const key=known||(legalKey(data.device)?data.device:id())
+  if(!known&&profiles.size>=50000)throw new Error('Guest profile limit reached.')
+  let username
+  do{username='Racer '+randomBytes(3).toString('hex').toUpperCase()}
+  while(usernames.has(username.toLowerCase()))
+  return saveAccount(key,{rating:1000,skill:1000,coins:refillAmount,nextCoinsAt:Date.now()+refillPeriod,
+    ownsPack:false,...profiles.get(key),username,credentials:null})
+}
+function checkName(username,key){
+  if(!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{2,19}$/.test(username))
+    throw new Error('Use 3–20 letters, numbers, spaces, dashes, or underscores.')
+  const name=username.toLowerCase()
+  if(reservedNames.has(name)||(usernames.has(name)&&usernames.get(name)!==key))
+    throw new Error('That player name is taken.')
 }
 async function accountAction(data,ip){
   const action=data.action
+  if(action==='bootstrap')return guestProfile(data)
   const username=typeof data.username==='string'?data.username.trim().replace(/ +/g,' '):''
-  const normalized=username.toLowerCase()
+  const email=typeof data.email==='string'?data.email.trim().toLowerCase():''
   const password=typeof data.password==='string'?data.password:''
-  if(!['guest','register','login'].includes(action))throw new Error('Choose Guest, Create Account, or Sign In.')
-  if(!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{2,19}$/.test(username))throw new Error('Use 3?20 letters, numbers, spaces, dashes, or underscores.')
-  if(action!=='guest'&&(password.length<8||password.length>128))throw new Error('Use a password with 8?128 characters.')
+  if(!['guest','register','login','rename'].includes(action))throw new Error('Unknown account action.')
+  const known=existingKey(data.profile)
+  if(action==='rename'){
+    const key=identity(data.profile)
+    checkName(username,key)
+    return saveAccount(key,{...profiles.get(key),username})
+  }
   if(action!=='guest'){
     const now=Date.now()
     const attempts=loginLimits.get(ip)||{start:now,count:0}
     if(now-attempts.start>=60000){attempts.start=now;attempts.count=0}
     loginLimits.set(ip,attempts)
     if(++attempts.count>12)throw new Error('Too many account attempts. Try again in a minute.')
+    if(password.length<8||password.length>128)throw new Error('Use a password with 8–128 characters.')
   }
   if(action==='login'){
-    const key=usernames.get(normalized)
-    const account=profiles.get(key)
-    const credentials=account?.credentials
+    const identifier=(email||username).toLowerCase()
+    const key=emails.get(identifier)||usernames.get(identifier)
+    const credentials=profiles.get(key)?.credentials
     const result=await derive(password,credentials?.salt||'magnet-missing-account',64)
     if(!credentials||!timingSafeEqual(result,Buffer.from(credentials.hash,'hex')))
-      throw new Error('Username or password is incorrect.')
+      throw new Error('Email, player name, or password is incorrect.')
     return profileState(key)
   }
-  if(reservedNames.has(normalized)||usernames.has(normalized))throw new Error('That username is taken.')
+  const current=known&&profiles.get(known)
+  const keep=known&&!current.credentials&&(action==='register'||!current.username)?known:null
+  const playerName=username||(keep?current.username:'')
+  checkName(playerName,keep)
+  if(action==='register'&&email&&(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))
+    throw new Error('Enter a valid email address.')
+  if(email&&emails.has(email))throw new Error('That email already has an account. Sign in instead.')
   const credentials=action==='register'?{salt:randomBytes(16).toString('hex')}:null
   if(credentials)credentials.hash=(await derive(password,credentials.salt,64)).toString('hex')
-  if(usernames.has(normalized))throw new Error('That username is taken.')
-  const legacy=existingKey(data.profile)
-  const key=legacy&&!profiles.get(legacy).username?legacy:id()
-  if(key!==legacy&&profiles.size>=50000)throw new Error('Guest profile limit reached.')
-  const prior=profiles.get(key)
-  profiles.set(key,{rating:1000,skill:1000,coins:refillAmount,nextCoinsAt:Date.now()+refillPeriod,ownsPack:false,...prior,username,credentials})
-  usernames.set(normalized,key)
-  try{persist()}catch(error){
-    usernames.delete(normalized)
-    if(prior)profiles.set(key,prior)
-    else profiles.delete(key)
-    throw error
-  }
-  return profileState(key)
+  const latest=keep&&profiles.get(keep)
+  if(latest?.credentials)throw new Error('This player already has sign-in details.')
+  if(email&&emails.has(email))throw new Error('That email already has an account. Sign in instead.')
+  checkName(playerName,keep)
+  if(!keep&&profiles.size>=50000)throw new Error('Guest profile limit reached.')
+  return saveAccount(keep||id(),{rating:1000,skill:1000,coins:refillAmount,nextCoinsAt:Date.now()+refillPeriod,
+    ownsPack:false,...latest,username:playerName,credentials,...(email?{email}:{})})
 }
 function redeem(data){
   const key=identity(data.profile)
@@ -354,7 +398,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'ping-and-cooldowns',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arcade-ui-auto-guest',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/checkout','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

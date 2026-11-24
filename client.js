@@ -8,9 +8,11 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
 const coinPrices={ice:90,comet:150}
+const gearNames={ice:'Ice Ship',comet:'Comet Burst',prism:'Prism',gold:'Gold'}
 let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0
 let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let backdrop=null, backdropKey=null, localPose=null
 let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
@@ -150,6 +152,7 @@ function renderHud(){
   write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
     String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
   $('game-root').dataset.match=String(!menu)
+  write('home-player',username|| (profileError?'Play offline while reconnecting':'Loading player…'))
   $('home-view').hidden=!menu
   $('match-view').hidden=menu
   const solo=game.mode==='practice'||game.mode==='circuit'
@@ -492,12 +495,22 @@ function applyProfile(data){
     coins=0
     gear=[]
     refillDeadline=null
+    ownsPack=false
+    checkoutReady=false
+    cosmetic='classic'
+    shipStyle='classic'
+    guestMode=true
+    accountEmail=null
     saved('profile','')
     return
   }
   setProfile(data.profile)
   username=data.username
-  if(data.guest&&username)saved('guest-profile',profile)
+  guestMode=Boolean(data.guest)
+  accountEmail=data.email||null
+  if(guestMode&&username)saved('guest-profile',profile)
+  else if(saved('guest-profile')===profile)saved('guest-profile','')
+  if(!guestMode&&saved('guest-device')===profile)saved('guest-device','')
   coins=data.coins||0
   refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
   gear=data.gear||[]
@@ -508,42 +521,77 @@ function applyProfile(data){
   write('rating',username?'Rating '+data.rating:'')
   updateShop()
 }
+function guestDevice(){
+  const cached=saved('guest-device')
+  if(/^[a-f0-9]{48}$/.test(cached||''))return cached
+  const bytes=new Uint8Array(24)
+  window.crypto.getRandomValues(bytes)
+  const id=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('')
+  saved('guest-device',id)
+  return id
+}
 async function refreshProfile(){
-  if(location.protocol==='file:'||!profile)return
-  try{applyProfile(await api('/profile',{profile}))}catch{}
+  if(location.protocol==='file:')return
+  if(profileRequest)return profileRequest
+  profileRequest=(async()=>{
+    try{
+      const savedGuest=saved('guest-profile')
+      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:guestDevice()})
+      profileError=''
+      applyProfile(data)
+    }catch{
+      profileError='Could not connect to your player profile. Try again in a moment.'
+    }finally{profileRequest=null}
+  })()
+  return profileRequest
+}
+function updateAccountCard(){
+  write('account-summary',username||'Connecting to your profile…')
+  write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
+  $('rename-account').disabled=!username
+  $('register-account').hidden=Boolean(username&&!guestMode)
+  $('switch-account').hidden=!username||guestMode
 }
 function openAccount(){
   $('account-form').hidden=true
-  $('account-choices').hidden=Boolean(username)
-  $('switch-account').hidden=!username
-  write('account-summary',username?'Playing as '+username:'Choose how you want to play.')
-  write('account-message','')
+  $('account-choices').hidden=false
+  updateAccountCard()
+  write('account-message',profileError)
   showDialog('account-dialog')
+  if(!username)refreshProfile().then(()=>{
+    updateAccountCard()
+    write('account-message',profileError)
+  })
 }
-async function chooseAccount(action){
-  if(action==='guest'){
-    const guest=saved('guest-profile')
-    if(guest){
-      try{
-        const data=await api('/profile',{profile:guest})
-        if(data.username){applyProfile(data);closeDialog('account-dialog');openLobby();return}
-      }catch{}
-    }
-  }
+function chooseAccount(action){
   accountMode=action
+  const rename=action==='rename'
+  const register=action==='register'
+  $('account-choices').hidden=true
   $('account-form').hidden=false
-  $('password-row').hidden=action==='guest'
-  $('password').required=action!=='guest'
-  $('password').autocomplete=action==='register'?'new-password':'current-password'
+  $('username-row').hidden=!rename
+  $('username').required=rename
+  $('username').value=rename?username||'':''
+  $('email-row').hidden=rename
+  $('email').required=!rename
+  $('email').type=register?'email':'text'
+  $('email').value=''
+  $('password-row').hidden=rename
+  $('password').required=!rename
+  $('password').autocomplete=register?'new-password':'current-password'
   $('password').value=''
-  write('account-submit',action==='guest'?'Create Guest':action==='register'?'Create Account':'Sign In')
-  write('account-message',action==='guest'?'This guest profile is saved in this browser on this device.':'')
-  $('username').focus()
+  write('email-label',register?'Email address':'Email or player name')
+  write('account-submit',rename?'Save name':register?'Save account':'Sign in')
+  write('account-form-help',register?'Keep your coins and unlocked gear when you switch devices.':
+    rename?'This name appears on your scoreboard.':'Use your saved account details.')
+  write('account-message','')
+  $(rename?'username':'email').focus()
 }
 $('account').addEventListener('click',openAccount)
-$('guest-account').addEventListener('click',()=>chooseAccount('guest'))
+$('rename-account').addEventListener('click',()=>chooseAccount('rename'))
 $('register-account').addEventListener('click',()=>chooseAccount('register'))
 $('login-account').addEventListener('click',()=>chooseAccount('login'))
+$('account-back').addEventListener('click',openAccount)
 $('switch-account').addEventListener('click',async()=>{
   if(activeMatch()){write('account-message','Finish your match before switching accounts.');return}
   if(online.connection){
@@ -551,21 +599,25 @@ $('switch-account').addEventListener('click',async()=>{
     resetOnline()
   }
   applyProfile({})
-  ownsPack=false
-  checkoutReady=false
-  cosmetic='classic'
-  shipStyle='classic'
+  await refreshProfile()
   openAccount()
 })
 $('account-form').addEventListener('submit',async event=>{
   event.preventDefault()
   const button=$('account-submit')
+  if(activeMatch()&&accountMode!=='rename'){
+    write('account-message','Finish your match before changing sign-in details.')
+    return
+  }
   button.disabled=true
   try{
-    applyProfile(await api('/account',{action:accountMode,username:$('username').value,password:$('password').value,profile}))
+    if(accountMode==='register'&&!username)await refreshProfile()
+    if(accountMode==='register'&&!username)throw new Error(profileError||'Player profile unavailable.')
+    const action=accountMode
+    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile}))
     $('password').value=''
-    closeDialog('account-dialog')
-    openLobby()
+    openAccount()
+    write('account-message',action==='register'?'Account saved. Your progress is still here.':action==='rename'?'Player name updated.':'Signed in.')
   }catch(error){write('account-message',error.message)}
   finally{button.disabled=false}
 })
@@ -592,6 +644,8 @@ function resetOnline(){
 }
 async function connect(action){
   if(online.connecting||online.connection)return
+  if(!username)await refreshProfile()
+  if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
   online.connecting=true
   write('room-message','Connecting…')
   try{
@@ -749,9 +803,10 @@ async function syncOnline(urgent=false){
 function activeMatch(){
   return Boolean(online.matchId&&game.phase!=='over')
 }
-function openLobby(){
-  if(!username&&location.protocol!=='file:'){openAccount();return}
-  write('selected-field',online.matchId?activeField(game).name:'Friend room course · '+fields[currentField].name)
+async function openLobby(){
+  if(!username&&location.protocol!=='file:')await refreshProfile()
+  write('selected-field',online.matchId?activeField(game).name:fields[currentField].name)
+  if(profileError)write('room-message',profileError)
   $('host').disabled=$('ranked').disabled=$('join-submit').disabled=activeMatch()
   showDialog('lobby-dialog')
 }
@@ -776,7 +831,7 @@ setInterval(syncOnline,34)
 
 function updateShop(){
   $('buy').hidden=ownsPack
-  write('shop-coins','· '+coins+' coins')
+  write('shop-coins',coins+' coins')
   const style=selectedPreview?.style
   const cost=coinPrices[style]
   const canEquip=Boolean(style&&safeCosmetic(style)===style)
@@ -795,11 +850,12 @@ function updateShop(){
 }
 function showShop(){
   $('preview').hidden=true
+  $('shop-preview').hidden=true
   selectedPreview=null
   updateShop()
   write('shop-message',ownsPack?'Founders pack unlocked.':
     checkoutReady?'One payment. Every match and course stays free.':
-    'Cosmetic previews are available. Checkout is not connected in this build.')
+    'Coin rewards are available. Founders checkout is not connected.')
   showDialog('shop-dialog')
 }
 for(const id of ['shop','featured-pack','result-shop'])$(id).addEventListener('click',showShop)
@@ -809,9 +865,17 @@ for(const button of document.querySelectorAll('[data-equip]'))button.addEventLis
   updateShop()
   write('shop-message','Celebration equipped.')
 })
+function showGearPreview(){
+  const {type,style}=selectedPreview
+  const name=gearNames[style]+(['prism','gold'].includes(style)?(type==='ship'?' Ship':' Celebration'):'')
+  write('preview-name',name)
+  $('shop-preview').hidden=false
+  $('shop-preview').scrollIntoView({block:'nearest',behavior:'smooth'})
+}
 let previewRun=0
 for(const button of document.querySelectorAll('[data-preview]'))button.addEventListener('click',()=>{
   selectedPreview={type:'goal',style:button.dataset.preview}
+  showGearPreview()
   updateShop()
   const preview=$('preview'),g=preview.getContext('2d'), colors=themeColors[button.dataset.preview]
   preview.hidden=false
@@ -836,6 +900,7 @@ for(const button of document.querySelectorAll('[data-preview]'))button.addEventL
 for(const button of document.querySelectorAll('[data-ship-preview]'))button.addEventListener('click',()=>{
   previewRun++
   selectedPreview={type:'ship',style:button.dataset.shipPreview}
+  showGearPreview()
   const preview=$('preview'),g=preview.getContext('2d')
   preview.hidden=false
   g.clearRect(0,0,320,84)
@@ -891,5 +956,6 @@ setMenu()
 requestAnimationFrame(frame)
 refreshProfile()
 checkPaymentReturn()
+
 
 
