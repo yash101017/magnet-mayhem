@@ -1,0 +1,1729 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0c18">
+<title>Magnet Mayhem</title>
+<style>
+:root{color-scheme:dark;--bg:#0a0c18;--paper:#f3f6ff;--muted:#b8c4e1;--line:#354362;--panel:#151d37;--cyan:#76f5ff;--pink:#ff9ac9;font:600 16px system-ui}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#1b2041,var(--bg) 65%);color:var(--paper);overscroll-behavior:none}
+main{width:min(100%,470px);margin:auto;padding:max(8px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+header,.score,.controls,.coursebar,.row{display:flex;align-items:center;gap:8px}header,.score,.coursebar{justify-content:space-between}header{margin-bottom:8px}
+h1{font-size:clamp(18px,5vw,25px);margin:0 auto 0 0;letter-spacing:-.055em;font-weight:950}
+h2{margin:0;font-size:clamp(25px,7vw,37px);letter-spacing:-.045em}.overlay p,dialog p{font-size:14px;line-height:1.45;color:#e0e6ff;margin:8px auto 12px}
+.score,.coursebar{margin-bottom:8px}.score{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+#score0{color:var(--cyan)}#score1{color:var(--pink)}#status{font-size:13px;text-align:center;color:#d0daf7}
+label{font-size:14px;color:var(--muted)}button,select,input{font:inherit;min-height:44px;min-width:0;border:1px solid #44527a;border-radius:9px;background:#202b50;color:#fff;padding:7px 11px}
+button{cursor:pointer;touch-action:manipulation}button:hover:not(:disabled){filter:brightness(1.17)}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid white;outline-offset:2px}button:disabled{opacity:.55;cursor:default}
+.coursebar select{flex:1}.coursebar button{white-space:nowrap}header button{padding-inline:8px;font-size:.86rem}
+.arena{position:relative;width:min(100%,max(260px,calc((100dvh - 222px)*.6923)));margin:auto}
+canvas{display:block;width:100%;aspect-ratio:360/520;touch-action:none;border:1px solid #465681;border-radius:14px;background:#111831}
+.overlay{position:absolute;inset:0;display:grid;place-content:center;text-align:center;padding:16px;background:#080d21cb;border-radius:14px}.overlay p{max-width:28ch}.overlay button+button{margin-top:7px}.overlay[hidden],[hidden]{display:none!important}
+.primary{background:var(--cyan);color:#0c1426;border-color:var(--cyan);font-weight:850}.controls{margin-top:8px}.controls button{flex:1;font-weight:850}.controls button:first-child{color:var(--cyan)}.controls button:last-child{color:var(--pink)}
+.hint{font-size:13px;color:var(--muted);text-align:center;margin:6px 0 0}.subtle{background:transparent;font-size:.84rem}
+dialog{color:var(--paper);width:min(420px,calc(100% - 24px));border:1px solid var(--line);border-radius:15px;background:#141d37;padding:18px;max-height:90dvh}dialog::backdrop{background:#050712bb}
+dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;flex-wrap:wrap}.row>*{flex:1}dialog input{width:110px}#room-input{text-transform:uppercase}#score0,#score1{overflow-wrap:anywhere}#status{min-width:3.4em}
+.card{padding:10px;margin:9px 0;background:#20284a;border:1px solid #44527a;border-radius:10px}.card p{margin:4px 0}.card strong{display:block}
+#room-message,#shop-message,#account-message{overflow-wrap:anywhere;margin:8px 0;min-height:1.1em}.tag{font-size:.8rem;color:var(--muted)}#room-code{letter-spacing:.18em;color:var(--cyan);font-size:1.5rem}
+@media(max-width:440px){main>header{flex-wrap:wrap}main>header h1{flex:1 0 100%}main>header button{min-height:36px}.arena{width:min(100%,max(260px,calc((100dvh - 246px)*.6923)))}}
+@media(max-width:365px){h1{font-size:17px}.coursebar button,header button{font-size:12px;padding-inline:7px}.coursebar label{display:none}}
+
+:root{--cyan:#79ffea;--pink:#ff78ab}
+.game-header{padding:10px 0;border-bottom:1px solid #283659}
+.game-header h1{letter-spacing:.055em;font-size:clamp(15px,4vw,20px)}
+.game-header button,.match-nav button{background:#141d36}
+.hero{position:relative;isolation:isolate;overflow:hidden;min-height:227px;margin:14px 0;border:1px solid #48568f;border-radius:20px;background:radial-gradient(ellipse at 74% 39%,#353273,#172340 50%,#101629 78%)}
+.hero-arena{position:absolute;inset:7% 4% 3% 30%;transform:rotate(-27deg) skew(-9deg);border:2px solid #637aa1;border-radius:29px;background:radial-gradient(circle,#616fbc 1px,transparent 1.5px) 0 0/14px 14px,linear-gradient(115deg,#141931,#253157);box-shadow:inset 0 0 30px #6476cf50,0 0 45px #7064dd44}
+.hero-arena::before,.hero-arena::after{content:'';position:absolute;inset:0 auto 0 50%;border-left:1px solid #7280be80}
+.hero-arena::after{inset:31% 35%;border:1px solid #8994ce;border-radius:50%}
+.hero-ship,.hero-puck{display:block;position:absolute;z-index:1;border-radius:50%}
+.hero-ship{width:34px;aspect-ratio:1;border:7px solid currentColor;background:#202949;box-shadow:0 0 22px currentColor}
+.hero-ship.pink{right:12%;top:20%;color:var(--pink)}.hero-ship.cyan{left:29%;bottom:19%;color:var(--cyan)}
+.hero-puck{width:13px;height:13px;left:55%;top:43%;background:#ffe88d;box-shadow:0 0 17px #fedc6c}
+.hero-copy{position:absolute;bottom:0;left:0;right:0;padding:55px 17px 16px;background:linear-gradient(transparent,#0a1024 76%)}
+.hero-copy h2{font-weight:950;font-size:clamp(31px,9vw,44px);line-height:1.05}.hero-copy p{margin:6px 0 0;color:#c6d4eb;font-size:14px}
+.home-actions{display:grid;grid-template-columns:2fr 1fr;gap:9px;margin-top:9px}.home-actions button{min-height:50px}
+.featured{width:100%;margin-top:12px;display:flex;gap:12px;align-items:center;text-align:left;background:#171d38;border-color:#575485;padding:10px 12px}
+.featured small{display:block;color:var(--muted);font-size:.8rem;margin-top:3px}.featured b{margin-left:auto;color:#fbd27d}.pack-mark{color:#ffe194;font-size:30px}
+.coin-total{color:#fbd27d;font-size:.84rem;white-space:nowrap}.match-nav{display:flex;justify-content:flex-end;margin:7px 0}.match-nav button{min-height:36px}
+.swatch-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.swatch-grid button{display:flex;align-items:center;gap:7px;text-align:left;font-size:.85rem}
+.ship-swatch,.burst-swatch{display:inline-grid;place-items:center;width:23px;height:23px;flex:0 0 23px}.ship-swatch{border-radius:50%;border:4px solid currentColor;background:#161b34}
+.ship-swatch.prism,.burst-swatch.prism{color:#c5a1ff}.ship-swatch.gold,.burst-swatch.gold{color:#ffd182}.burst-swatch{font-size:23px}
+.reward-clock{margin-top:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 13px;border:1px solid #3c496a;border-radius:10px;background:#131c36}.reward-clock b{color:#ffe194;font-variant-numeric:tabular-nums}.home-actions{grid-template-columns:1fr 1fr}.home-actions .primary{grid-column:1/-1}#preview{aspect-ratio:320/84}
+@media(max-width:365px){.featured small{font-size:.73rem}.swatch-grid button{padding-inline:6px}}
+.match-stage{--action-size:clamp(54px,13.5vw,64px);display:grid;grid-template-columns:var(--action-size) minmax(0,1fr);grid-template-areas:"actions rink";align-items:center;gap:8px}
+.match-stage .arena{grid-area:rink;width:min(100%,calc(max(250px,100dvh - 170px)*.6923));max-width:100%;margin:0 auto}
+.magnet-buttons{grid-area:actions;justify-self:center;align-self:center;display:flex;flex-direction:column;gap:18px}
+.match-stage[data-side="right"]{grid-template-columns:minmax(0,1fr) var(--action-size);grid-template-areas:"rink actions"}
+html[data-game-locked="true"],html[data-game-locked="true"] body{touch-action:none;overscroll-behavior:none}
+#match-view{touch-action:none}
+.ping-display{margin-right:auto;white-space:nowrap;align-self:center;font-size:.8rem;color:#9de6cc;font-variant-numeric:tabular-nums}
+.ping-display[data-quality="fair"]{color:#fbd27d}.ping-display[data-quality="poor"]{color:#ff9abc}.ping-display[data-quality="unknown"]{color:var(--muted)}
+.action-time{font-size:.69rem;line-height:1;font-variant-numeric:tabular-nums}
+html[data-game-locked="true"] main,#match-view,#match-view *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.match-stage,.match-stage *{-webkit-tap-highlight-color:transparent}
+.match-stage[data-overlay="true"] .magnet-buttons{visibility:hidden}
+.match-stage .magnet-buttons button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;position:relative;flex:none;width:var(--action-size);height:var(--action-size);min-height:0;border-radius:50%;padding:0;color:#10182e;border:2px solid #edf8ff80;font-size:.95rem;font-weight:900;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.match-stage .magnet-buttons #push{background:#79ddff;box-shadow:0 0 12px #79ddff55}
+.match-stage .magnet-buttons #pull{background:#ff85bc;box-shadow:0 0 12px #ff85bc55}
+.match-stage .magnet-buttons button[aria-disabled="true"]{opacity:.52}
+.match-stage .magnet-buttons button:active{transform:scale(.94)}
+.match-nav{gap:7px}
+.touch-hint{display:none}
+@media(min-width:600px){main[data-match="true"]{width:min(100%,590px)}}
+@media(pointer:coarse){
+  .keyboard-hint{display:none}
+  .touch-hint{display:inline}
+  main[data-match="true"] .game-header{flex-wrap:nowrap;gap:6px;padding-block:6px}
+  main[data-match="true"] .game-header h1{flex:1 0 0;font-size:.79rem;line-height:1.05}
+  main[data-match="true"] .game-header button{font-size:.74rem;padding-inline:6px}
+  main[data-match="true"] .coin-total{font-size:.75rem}
+  .match-nav{margin-block:5px}
+}
+@media(max-width:540px) and (orientation:portrait){
+  main[data-match="true"]{padding-inline:max(8px,env(safe-area-inset-left)) max(8px,env(safe-area-inset-right))}
+  .keyboard-hint{display:none}
+  .touch-hint{display:inline}
+}
+
+:root{--ink:#0a0f22;--deck:#111a34;--line:#354970;--mint:#91ffe0;--rose:#ff78b5;--muted:#9eafcc}
+body{background:radial-gradient(ellipse at 50% -10%,#252350 0,#10152b 38%,#080d1d 78%)}
+main{max-width:530px}
+.game-header{border-color:#364365}
+.game-header h1{font-weight:950;letter-spacing:.035em}
+.brand-mark{display:inline-grid;place-items:center;width:1.6em;height:1.6em;border:1px solid #8cf8e681;border-radius:8px;color:var(--mint);background:#254750;margin-right:3px}
+.game-header .quiet{background:#11192f;border-color:#354870;color:#e5edff}
+.coin-total{background:#322b29;border:1px solid #816949;padding:6px 9px;border-radius:99px;font-weight:850}
+.hero{min-height:256px;border-color:#695bb0;background:radial-gradient(ellipse at 75% 37%,#493482,#232852 44%,#14192f 84%);box-shadow:0 15px 44px #03061477}
+.hero-arena{inset:5% 3% 9% 29%;background:radial-gradient(circle,#7783c9 1px,transparent 1.5px) 0 0/15px 15px,linear-gradient(125deg,#192641,#41447f);border-color:#97a9e2}
+.hero-arena .hero-ship.cyan{left:21%;bottom:20%;color:var(--mint)}.hero-arena .hero-ship.pink{right:13%;top:16%;color:var(--rose)}
+.hero-copy{padding:74px 19px 19px;background:linear-gradient(transparent,#0b1225 86%)}
+.hero-copy h2{font-size:clamp(34px,9.2vw,58px);letter-spacing:-.065em}
+.hero-copy .player-label{width:fit-content;color:#b9ffe9;background:#183a46;border:1px solid #4a948e;border-radius:99px;padding:4px 9px;margin:0 0 9px;font-size:.75rem}
+.home-panel{border:1px solid var(--line);border-radius:17px;padding:12px;background:linear-gradient(155deg,#192445,#10182d)}
+.home-panel .coursebar{margin:0 0 10px}.home-panel .coursebar label{font-weight:800;color:#e2eaff}
+.home-actions{margin:0}.home-actions button,.lobby-actions button{text-align:left;padding:10px 12px;min-height:58px}
+.home-actions .primary,.lobby-actions .primary{background:var(--mint);border-color:#caffef;color:#0c2729}
+#home-war,#warzone{grid-column:1/-1;background:#32245c;border-color:#8c74d3}
+.home-actions span,.lobby-actions span{display:block;font-weight:900}
+.home-actions small,.lobby-actions small,.reward-clock small,.profile-card small,.swatch-grid small{display:block;font-size:.76rem;line-height:1.3;margin-top:4px}
+.home-actions button:not(.primary) small,.lobby-actions button:not(.primary) small,.reward-clock small,.profile-card small,.swatch-grid small{color:#b7c3df}
+.reward-clock{border-radius:14px;background:#17223c}
+.featured{border-radius:14px;background:linear-gradient(110deg,#2b2450,#19203b);border-color:#7465a2}
+.score{border-color:#475a85;background:linear-gradient(90deg,#172e41,#182139 50%,#2b213d);min-height:42px}
+.arena{box-shadow:0 10px 26px #02061260;border-radius:14px}
+.overlay{background:radial-gradient(ellipse,#131b39f2,#090f24da)}
+dialog{border-color:#53678f;border-radius:20px;background:linear-gradient(145deg,#1a2746,#111a30);box-shadow:0 18px 52px #02030aab}
+dialog>header{position:sticky;top:-18px;z-index:2;padding:6px 0;background:#17223b;border-bottom:1px solid #39496d}
+dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
+.lobby-stats{display:flex;justify-content:space-between;gap:8px;padding:4px 10px;border:1px solid #405579;border-radius:12px;background:#172641}
+.lobby-stats p{margin:5px 0;color:#d3e7ff}
+.lobby-actions,.account-actions{display:grid;gap:8px}
+.join-room{padding:8px 0}.join-room input{letter-spacing:.1em}
+.room-share{display:flex;align-items:center;gap:12px}
+.profile-card,.shop-banner{display:flex;align-items:center;gap:13px;padding:13px;border:1px solid #54678f;border-radius:13px;background:linear-gradient(130deg,#244751,#293057)}
+.profile-icon{display:grid;place-items:center;flex:none;width:42px;height:42px;border:1px solid #9cffde85;border-radius:13px;color:var(--mint);font-size:1.35rem;background:#182f46}
+.account-actions,.account-form{margin-top:12px}.account-form input{width:100%;margin:5px 0 10px;text-transform:none}
+.account-actions button{text-align:left}.shop-banner{justify-content:space-between}.shop-banner p{margin:4px 0 0}
+.shop-banner b{color:#ffe09c;font-size:.83rem;text-align:right}
+#shop-dialog .card{padding:12px;border-radius:13px;background:#1b2845;border-color:#445b83}
+#shop-dialog .pack-card{background:linear-gradient(125deg,#382d58,#242c47);border-color:#7a67a5}
+#shop-dialog .pack-card>strong{display:flex;justify-content:space-between;gap:8px}
+#price{color:#ffdaa0}
+.swatch-grid button{min-height:55px;background:#202c4b}
+.shop-preview{margin-top:10px;padding:10px;border:1px solid #54678f;border-radius:13px;background:#131e36}
+.shop-preview #preview{margin-top:8px;aspect-ratio:320/84}
+@media(max-width:380px){.hero{min-height:220px}.game-header .brand-mark{display:none}.coin-total{padding:5px 6px}.home-actions small{font-size:.7rem}}
+</style>
+</head>
+<body>
+<main id="game-root">
+<header class="game-header"><h1><span class="brand-mark" aria-hidden="true">✦</span> MAGNET MAYHEM</h1><button id="sound" class="quiet" aria-pressed="false">Sound off</button><button id="account" class="quiet">Account</button><span id="coin-total" class="coin-total">0 coins</span></header>
+<section id="home-view" aria-label="Main menu">
+  <div class="hero">
+    <div class="hero-arena" aria-hidden="true"><span class="hero-ship pink"></span><span class="hero-puck"></span><span class="hero-ship cyan"></span></div>
+    <div class="hero-copy"><p id="home-player" class="player-label">Loading player…</p><h2>Own the puck.</h2><p>First to three goals wins.</p></div>
+  </div>
+  <div class="home-panel">
+    <div class="coursebar"><label for="field-picker">Arena</label><select id="field-picker" aria-label="Arena"></select></div>
+    <div class="home-actions">
+      <button id="home-play" class="primary"><span>Play Online</span><small>Ranked or with friends</small></button>
+      <button id="home-war"><span>War Zone</span><small>5 vs 5 · Automatic teams</small></button>
+      <button id="home-practice"><span>Free Practice</span><small>Play at your own pace</small></button>
+      <button id="shop"><span>Shop</span><small>Ships and celebrations</small></button>
+    </div>
+  </div>
+  <div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
+  <button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">✧</span><span><strong>Neon Founders Pack</strong><small>2 ship styles · 2 goal celebrations</small></span><b>$2.99</b></button>
+</section>
+<section id="match-view" hidden>
+<div class="match-nav"><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
+<div class="match-stage" id="match-stage">
+<div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
+<div class="arena">
+<canvas id="field" width="720" height="1040" aria-label="Magnet Mayhem arena"></canvas>
+<div class="overlay" id="overlay">
+<h2 id="title">Own the puck</h2>
+<p id="message">Drag to steer. Pull the puck close, then aim a push into the opposing goal.</p>
+<button class="primary" id="replay">Open Online</button>
+<button class="subtle" id="result-shop" hidden>Browse goal effects</button>
+</div>
+</div>
+</div>
+<p class="hint" id="hint"><span class="keyboard-hint">WASD / arrows · Q pull · E push</span><span class="touch-hint">Swipe to steer · Tap Push or Pull in range</span></p>
+</section>
+</main>
+
+<dialog id="lobby-dialog">
+  <header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
+  <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
+  <p>Competitive matches stake <strong>30 Arena Coins</strong>.</p>
+  <div class="lobby-actions">
+    <button id="ranked" class="primary"><span>Ranked Game</span><small>Find an opponent near your rating</small></button>
+    <button id="warzone"><span>War Zone</span><small>Find a 5 vs 5 match</small></button>
+    <button id="host"><span>Create Room</span><small>Invite a friend with a room code</small></button>
+  </div>
+  <form id="join" class="row join-room"><input id="room-input" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" required pattern="[A-Za-z0-9]{6}"><button id="join-submit">Join Friend</button></form>
+  <div class="room-share"><strong id="room-code"></strong><button id="copy" hidden>Copy room code</button></div>
+  <p id="room-message" role="status"></p>
+</dialog>
+
+<dialog id="account-dialog">
+  <header><h2>Player profile</h2><button data-close="account-dialog">Close</button></header>
+  <div class="profile-card"><span class="profile-icon" aria-hidden="true">✦</span><div><strong id="account-summary">Connecting…</strong><small id="account-kind"></small></div></div>
+  <div id="account-choices" class="account-actions">
+    <button id="rename-account">Edit player name</button>
+    <button id="register-account" class="primary">Save with email</button>
+    <button id="login-account">Sign in to another account</button>
+    <button id="switch-account" hidden>Switch to guest</button>
+  </div>
+  <form id="account-form" class="account-form" hidden>
+    <p id="account-form-help"></p>
+    <div id="username-row"><label for="username">Player name</label><input id="username" maxlength="20" minlength="3" autocomplete="nickname"></div>
+    <div id="email-row"><label id="email-label" for="email">Email address</label><input id="email" inputmode="email" maxlength="254" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
+    <div id="password-row"><label for="password">Password</label><input id="password" type="password" minlength="8" maxlength="128"></div>
+    <div class="row"><button id="account-back" type="button">Back</button><button id="account-submit" class="primary">Continue</button></div>
+  </form>
+  <p id="account-message" role="status"></p>
+</dialog>
+
+<dialog id="shop-dialog">
+<header><h2>Gear shop</h2><button data-close="shop-dialog">Close</button></header>
+<div class="shop-banner"><div><strong>Customize your ride.</strong><p>Make it yours with ships and goal effects.</p></div><b id="shop-coins"></b></div>
+<div class="card">
+<strong>Arena Coin rewards</strong>
+<p>Unlock gear with the coins you earn in the arena.</p>
+<div class="swatch-grid">
+<button data-ship-preview="ice"><span class="ship-swatch" style="color:#8ef0ff" aria-hidden="true"></span><span>Ice ship<small>90 coins</small></span></button>
+<button data-preview="comet"><span class="burst-swatch" style="color:#93eaff" aria-hidden="true">✺</span><span>Comet burst<small>150 coins</small></span></button>
+</div>
+</div>
+<div class="card pack-card">
+<strong>Neon Founders Pack <span class="tag" id="price">$2.99</span></strong>
+<p>Two hovercraft styles, two goal celebrations, and a Founders badge.</p>
+<div class="swatch-grid">
+  <button data-ship-preview="prism"><span class="ship-swatch prism" aria-hidden="true"></span>Prism ship</button>
+  <button data-ship-preview="gold"><span class="ship-swatch gold" aria-hidden="true"></span>Gold ship</button>
+  <button data-preview="prism"><span class="burst-swatch prism" aria-hidden="true">✺</span>Rainbow burst</button>
+  <button data-preview="gold"><span class="burst-swatch gold" aria-hidden="true">✷</span>Gold fireworks</button>
+</div>
+
+<div class="row"><button id="buy" class="primary" disabled>Checkout unavailable</button></div>
+</div>
+<div class="card">
+<strong>Starter gear</strong><p>Standard ship and celebration.</p>
+<div class="row"><button data-equip="classic">Equip celebration</button><button id="equip-standard-ship">Equip ship</button></div>
+</div>
+<div id="shop-preview" class="shop-preview" hidden><strong id="preview-name"></strong><canvas id="preview" width="320" height="84" hidden aria-label="Goal celebration preview"></canvas><div id="preview-controls" class="row" hidden><button id="equip-preview">Equip</button><button id="unlock-preview" class="primary" hidden>Unlock</button></div></div><p id="shop-message" role="status"></p>
+</dialog>
+
+
+<script>
+(() => {
+'use strict'
+
+const W = 360
+const H = 520
+const wall = 14
+const cornerRadius = 56
+const goal = 66
+const range = 112
+const stepSeconds = 1 / 120
+const fields = [
+  {name:'Split Gates', bumpers:[{x:140,y:310,r:24},{x:222,y:201,r:24}]},
+  {name:'Ricochet Alley', bumpers:[{x:95,y:330,r:28},{x:232,y:256,r:35},{x:130,y:159,r:25}]},
+  {name:'Pinball Yard', bumpers:[{x:138,y:338,r:33},{x:250,y:269,r:31},{x:109,y:201,r:29},{x:218,y:126,r:26}]},
+  {name:'Open Arena', bumpers:[]},
+  {name:'Crosswind', bumpers:[{x:139,y:358,r:20},{x:221,y:162,r:20},{x:79,y:256,r:25},{x:281,y:264,r:25}]}
+]
+const difficulties = {
+  training: {speed:84, shotPower:295, recovery:3.6, reaction:.65, line:.34},
+  easy: {speed:126, shotPower:385, recovery:2.45, reaction:.36, line:.46},
+  normal: {speed:177, shotPower:470, recovery:1.45, reaction:.24, line:.54},
+  hard: {speed:223, shotPower:535, recovery:1.05, reaction:.14, line:.62}
+}
+const botRivals = [
+  {name:'Bolt',style:'rush',speed:18,offset:0,reaction:-.035},
+  {name:'Glint',style:'flank',speed:3,offset:-34,reaction:.015},
+  {name:'Vesper',style:'flank',speed:6,offset:34,reaction:-.015},
+  {name:'Anchor',style:'guard',speed:-8,offset:0,reaction:.075},
+  {name:'Switch',style:'feint',speed:9,offset:14,reaction:.025}
+]
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value))
+const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y)
+const shipColors = ['#67f7ff','#ff72b3']
+const warTeamSize=5
+const warSpawns=[[72,431],[95,353],[180,338],[265,353],[288,431]]
+function teamOf(game,seat){return game.mode==='warzone'?Math.floor(seat/warTeamSize):seat}
+const still = { vx:0, vy:0 }
+const neutralInput = Object.freeze({dx:0,dy:0})
+
+function cornerAt(body){
+  const low=wall+cornerRadius
+  const x=body.x<low?low:body.x>W-low?W-low:null
+  const y=body.y<low?low:body.y>H-low?H-low:null
+  return x===null||y===null?null:{x,y}
+}
+function collideCorner(body,padding,bounce){
+  const corner=cornerAt(body)
+  if(!corner)return
+  const dx=body.x-corner.x,dy=body.y-corner.y
+  const d=Math.hypot(dx,dy), radius=cornerRadius-padding
+  if(d<=radius)return
+  const nx=dx/d,ny=dy/d
+  body.x=corner.x+nx*radius
+  body.y=corner.y+ny*radius
+  const outward=body.vx*nx+body.vy*ny
+  if(outward>0){
+    body.vx-=nx*outward*(1+bounce)
+    body.vy-=ny*outward*(1+bounce)
+  }
+}
+function setInside(body, padding) {
+  collideCorner(body,padding,0)
+  body.x = clamp(body.x,wall+padding,W-wall-padding)
+  body.y = clamp(body.y,wall+padding,H-wall-padding)
+}
+function releasePinnedPuck(game,craft,dt){
+  const puck=game.puck, corner=cornerAt(puck)
+  const pinned=corner&&distance(puck,corner)>cornerRadius-12&&
+    Math.hypot(puck.vx,puck.vy)<35&&craft.some(ship=>distance(ship,puck)<28)
+  game.cornerStall=pinned?(game.cornerStall||0)+dt:0
+  if(game.cornerStall<1.2)return
+  game.cornerStall=0
+  const dx=corner.x-puck.x,dy=corner.y-puck.y,d=Math.hypot(dx,dy)
+  puck.x+=dx/d*4
+  puck.y+=dy/d*4
+  puck.vx=370*dx/d
+  puck.vy=370*dy/d
+  event(game,'release')
+}
+
+function activeField(game) {
+  if (game.mode === 'circuit') return [0,1,2,4].map(index => fields[index])[Math.min(game.stage,3)]
+  return fields[game.field]
+}
+
+function resetRound(game) {
+  game.think = .55
+  game.escape = null
+  game.attackStall = 0
+  game.attackSide = 1
+  game.lastAttackPosition = null
+  game.motionStall = 0
+  game.routeSide = null
+  game.routeObstacle = null
+  game.routeTime = 0
+  game.cornerStall = 0
+  game.trail = []
+  game.effects = []
+  game.serve = game.mode === 'practice' || game.mode === 'circuit' ? 0 : .8
+  if (game.serve) game.phase = 'serve'
+  else game.phase = 'play'
+  if(game.mode==='warzone'){
+    game.craft.forEach((craft,seat)=>{
+      const [x,y]=warSpawns[seat%warTeamSize]
+      Object.assign(craft,still,{x:teamOf(game,seat)===0?x:W-x,y:teamOf(game,seat)===0?y:H-y,cd:0})
+    })
+    game.botThink=game.craft.map((_,seat)=>.18+seat*.045)
+  }else{
+    Object.assign(game.craft[0], still, {x:180,y:410,cd:0})
+    Object.assign(game.craft[1], still, {x:180,y:110,cd:0})
+  }
+  Object.assign(game.puck,still,{x:180,y:260})
+}
+
+function createGame({mode='bot', field=0, difficulty='easy', rival=null, bots=null} = {}) {
+  const game = {
+    mode,rival,bots,field:fields[field]?field:0,difficulty:Object.hasOwn(difficulties,difficulty)?difficulty:'easy',
+    phase:'play',score:[0,0],stage:0,elapsed:0,serial:0,clock:90,delay:0,winner:null,extra:false,
+    craft:(mode==='warzone'?shipColors.flatMap(color=>Array(warTeamSize).fill(color)):shipColors).map(color=>({color})),
+    puck:{}, lastShot:Array(mode==='warzone'?warTeamSize*2:2).fill(0), status:'', event:{id:0}
+  }
+  resetRound(game)
+  return game
+}
+
+function event(game,kind,seat) {
+  game.event={id:++game.serial,kind,seat}
+}
+
+function changeGoal(game,owner) {
+  if(game.mode==='practice'||game.mode==='circuit'){
+    if(owner===1){resetRound(game);event(game,'reset');return}
+    game.stage++
+    event(game,'goal',0)
+    if(game.mode==='practice'||game.stage===4){
+      game.phase='over'
+      game.winner=0
+    } else {
+      game.phase='goal'
+      game.delay=.85
+    }
+    return
+  }
+  game.score[owner]++
+  event(game,'goal',owner)
+  if(game.score[owner]>=3||game.extra){
+    game.winner=owner
+    game.phase='over'
+  }else{
+    game.phase='goal'
+    game.delay=.85
+  }
+}
+
+function magnet(game,seat,push) {
+  const craft=game.craft[seat], puck=game.puck
+  if(game.phase!=='play'||craft.cd>0)return false
+  const d=distance(craft,puck)
+  if(d>range||d<1){event(game,'miss',seat);return false}
+  const ai=game.mode==='warzone'&&game.bots?.[seat]?difficulties[game.bots[seat].difficulty]:game.mode==='bot'&&seat===1?difficulties[game.difficulty]:null
+  const force=push?(ai?.shotPower??570):-Math.min(330,d*5)
+  puck.vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
+  puck.vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
+  craft.cd=ai?.recovery??.85
+  game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push})
+  event(game,push?'push':'pull',seat)
+  return true
+}
+
+function steer(craft,x,y,speed,dt,response=14) {
+  const dx=x-craft.x,dy=y-craft.y,d=Math.hypot(dx,dy)
+  const rate=Math.min(speed,d*12)/Math.max(1,d), blend=Math.min(1,dt*response)
+  craft.vx+=(dx*rate-craft.vx)*blend
+  craft.vy+=(dy*rate-craft.vy)*blend
+  craft.x+=craft.vx*dt
+  craft.y+=craft.vy*dt
+  setInside(craft,15)
+  craft.cd=Math.max(0,craft.cd-dt)
+}
+
+function separate(a,b,radius,moveA,moveB,restitution) {
+  const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)
+  if(d>=radius)return
+  const nx=d>0?dx/d:1,ny=d>0?dy/d:0
+  const overlap=radius-d
+  a.x-=nx*overlap*moveA
+  a.y-=ny*overlap*moveA
+  b.x+=nx*overlap*moveB
+  b.y+=ny*overlap*moveB
+  const speed=((a.vx||0)-(b.vx||0))*nx+((a.vy||0)-(b.vy||0))*ny
+  if(speed<=0)return
+  const impulse=speed*(1+restitution)
+  if(moveA){a.vx-=nx*impulse*moveA;a.vy-=ny*impulse*moveA}
+  if(moveB){b.vx+=nx*impulse*moveB;b.vy+=ny*impulse*moveB}
+}
+
+function steerAttacker(game,target,puck,speed,dt){
+  const ship=game.craft[1]
+  if(distance(ship,target)<(ship.cd>0?17:8)){
+    const dx=ship.x-puck.x,dy=ship.y-puck.y
+    const length=Math.max(1,Math.hypot(dx,dy))
+    const side=game.attackSide
+    target={x:clamp(target.x+side*dy/length*22,30,W-30),
+      y:clamp(target.y-side*dx/length*22,30,H-30)}
+  }
+  const bumpers=activeField(game).bumpers
+  for(const bumper of bumpers){
+    const dx=target.x-bumper.x,dy=target.y-bumper.y
+    const clearance=bumper.r+24
+    const d=Math.hypot(dx,dy)
+    if(d>=clearance)continue
+    const angle=d>1?Math.atan2(dy,dx):Math.atan2(ship.y-bumper.y,ship.x-bumper.x)
+    target={x:clamp(bumper.x+Math.cos(angle)*clearance,30,W-30),
+      y:clamp(bumper.y+Math.sin(angle)*clearance,30,H-30)}
+  }
+  const dx=target.x-ship.x,dy=target.y-ship.y
+  const travel=dx*dx+dy*dy
+  let block=null
+  let nearest=Infinity
+  for(const bumper of bumpers){
+    const projected=((bumper.x-ship.x)*dx+(bumper.y-ship.y)*dy)/Math.max(1,travel)
+    // A nearby bumper behind us does not block a route leading away from it.
+    if(projected<=0)continue
+    const t=Math.min(1,projected)
+    const gap=Math.hypot(ship.x+dx*t-bumper.x,ship.y+dy*t-bumper.y)
+    if(gap>bumper.r+17||t>=nearest)continue
+    block=bumper
+    nearest=t
+  }
+  if(block){
+    const radius=block.r+28
+    const angle=Math.atan2(ship.y-block.y,ship.x-block.x)
+    const candidate=side=>({
+      x:clamp(block.x+Math.cos(angle+side*.55)*radius,30,W-30),
+      y:clamp(block.y+Math.sin(angle+side*.55)*radius,30,H-30)
+    })
+    if(game.routeObstacle!==block){
+      game.routeSide=distance(candidate(1),target)<=distance(candidate(-1),target)?1:-1
+      game.routeObstacle=block
+      game.routeTime=0
+    }
+    game.routeTime+=dt
+    if(game.routeTime>=.8&&distance(ship,puck)>28&&distance(ship,puck)<=range&&magnet(game,1,false)){
+      game.routeTime=0
+    }
+    target=candidate(game.routeSide)
+  }else{
+    game.routeObstacle=null
+    game.routeTime=0
+  }
+  steer(ship,target.x,target.y,speed,dt)
+}
+
+function runAI(game,dt) {
+  const bot=game.craft[1], puck=game.puck, ai=difficulties[game.difficulty]
+  const rival=game.rival
+  const speed=ai.speed+(rival?.speed||0)
+  const last=game.lastAttackPosition
+  game.motionStall=last&&distance(bot,last)<.11?game.motionStall+dt:0
+  game.lastAttackPosition={x:bot.x,y:bot.y}
+  if(game.motionStall>=.26){
+    const away=bot.x<72?1:bot.x>W-72?-1:game.attackSide
+    game.escape={x:clamp(bot.x+away*77,35,W-35),
+      y:clamp(bot.y+(bot.y<puck.y?-1:1)*51,35,H-35),left:.66}
+    game.attackSide*=-1
+    game.routeSide=game.routeSide?-game.routeSide:null
+    game.motionStall=0
+  }
+  if(game.escape){
+    const exit=game.escape
+    steerAttacker(game,exit,puck,speed,dt)
+    exit.left-=dt
+    if(exit.left<=0)game.escape=null
+    return
+  }
+  const side=puck.x<48?1:puck.x>W-48?-1:0
+  const end=puck.y<65?1:puck.y>H-65?-1:0
+  if(side&&end){
+    const x=clamp(puck.x+side*77,42,W-42)
+    const y=clamp(puck.y+end*63,42,H-42)
+    steer(bot,x,y,ai.speed,dt)
+    const gap=distance(bot,puck)
+    const inward=(bot.x-puck.x)*side>54&&(bot.y-puck.y)*end>41
+    if(inward&&gap>=85&&gap<=range&&magnet(game,1,false)){
+      game.escape={x:clamp(bot.x-side*41,29,W-29),y:clamp(bot.y+end*73,29,H-29),left:.8}
+    }
+    return
+  }
+  const offset=(rival?.offset||0)*clamp((320-puck.y)/150,0,1)
+  const behind=rival?.style==='rush'?33:44
+  const defender=game.craft[0]
+  const clearLane=puck.x<defender.x-20?-1:puck.x>defender.x+20?1:game.attackSide
+  const goalX=W/2+clearLane*33
+  const goalLine=(puck.x-goalX)*behind/Math.max(65,H-puck.y)
+  const swing=12*Math.sin(game.elapsed*4.5+(rival?.offset||0)*.08)
+  let targetX=clamp(puck.x+goalLine+offset+swing+puck.vx*.08,30,330)
+  let targetY=clamp(puck.y-behind+7*Math.cos(game.elapsed*3.7),29,455)
+  if(rival?.style==='guard'&&puck.y>285){
+    targetX=clamp(puck.x+goalLine+swing,42,318)
+    targetY=clamp(puck.y-66,80,436)
+  }
+  const d=distance(bot,puck)
+  const puckSlow=Math.hypot(puck.vx,puck.vy)<25
+  game.attackStall=puckSlow?game.attackStall+dt:0
+  const ahead=puck.y-bot.y
+  const openLane=activeField(game).bumpers.every(bumper=>distance(puck,bumper)>bumper.r+85)
+  // Close the gap instead of settling at a preferred shooting distance.
+  if(openLane&&puckSlow&&game.attackStall<1.05&&ahead>48&&Math.abs(puck.x-bot.x)<range){
+    steerAttacker(game,{x:clamp(puck.x+goalLine,30,W-30),
+      y:clamp(puck.y-29,30,H-30)},puck,speed,dt)
+    game.attackStall=0
+    return
+  }
+  const defenderInLane=defender.y>puck.y&&defender.y-puck.y<95&&Math.abs(defender.x-puck.x)<30
+  if(openLane&&puckSlow&&defenderInLane&&ahead>15&&d<range){
+    const flank=(defender.x<puck.x?-1:defender.x>puck.x?1:game.attackSide)
+    const target={x:clamp(puck.x+flank*41,31,W-31),y:clamp(puck.y-29,31,H-31)}
+    if(bot.cd<=0&&d>43&&Math.abs(puck.x-bot.x)>23&&magnet(game,1,false)){
+      game.escape={x:clamp(bot.x+flank*35,31,W-31),y:clamp(bot.y+32,31,H-31),left:.44}
+      game.attackStall=0
+      return
+    }
+    targetX=target.x
+    targetY=target.y
+  }
+  game.attackStall=puckSlow?game.attackStall+dt:0
+  if(game.attackStall>=1.15&&bot.cd<=0){
+    game.attackStall=0
+    const line=puck.y-bot.y
+    const aim=puck.x+(puck.x-bot.x)*(H-puck.y)/Math.max(line,1)
+    if(d<range&&line>18&&Math.abs(aim-goalX)<60&&magnet(game,1,true))return
+    if(d>42&&d<range&&magnet(game,1,false)){
+      game.escape={x:clamp(bot.x+game.attackSide*48,32,W-32),y:clamp(bot.y-27,32,H-32),left:.5}
+    }else{
+      const side=puck.x<90?1:puck.x>W-90?-1:game.attackSide
+      game.escape={x:clamp(puck.x+side*65,32,W-32),y:clamp(puck.y-53,32,H-32),left:.55}
+    }
+    game.attackSide*=-1
+    if(game.escape)return
+  }
+  steerAttacker(game,{x:targetX,y:targetY},puck,speed,dt)
+  game.think-=dt
+  if(game.think>0)return
+  game.think=ai.reaction+(rival?.reaction||0)
+  const rise=puck.y-bot.y
+  const aim=puck.x+(puck.x-bot.x)*(H-puck.y)/Math.max(rise,1)
+  if(distance(bot,puck)<84&&rise>20&&Math.abs(aim-goalX)<23+ai.line*45){
+    magnet(game,1,true)
+  }else if(rival?.style==='feint'&&d>85&&d<106&&puck.y>bot.y+45&&Math.abs(puck.vx)>70){
+    magnet(game,1,false)
+  }
+}
+
+function pathToPuck(game,ship,x,y){
+  for(const bumper of activeField(game).bumpers){
+    const dx=x-ship.x,dy=y-ship.y
+    const t=clamp(((bumper.x-ship.x)*dx+(bumper.y-ship.y)*dy)/Math.max(1,dx*dx+dy*dy),0,1)
+    if(t<=0||Math.hypot(ship.x+dx*t-bumper.x,ship.y+dy*t-bumper.y)>bumper.r+17)continue
+    const angle=Math.atan2(ship.y-bumper.y,ship.x-bumper.x)
+    const radius=bumper.r+25
+    const route=[-1,1].map(side=>({x:bumper.x+Math.cos(angle+side*.52)*radius,y:bumper.y+Math.sin(angle+side*.52)*radius}))
+    return distance(route[0],{x,y})<distance(route[1],{x,y})?route[0]:route[1]
+  }
+  return {x,y}
+}
+function runWarTeam(game,team,inputs,dt){
+  const first=team*warTeamSize
+  const end=first+warTeamSize
+  const puck=game.puck
+  const direction=team===0?-1:1
+  const attackGoal=team===0?wall:H-wall
+  const attackOrder=game.craft.slice(first,end).map((craft,index)=>({
+    seat:first+index,distance:distance(craft,puck)
+  })).sort((a,b)=>a.distance-b.distance)
+  const firstBot=attackOrder.find(entry=>game.bots?.[entry.seat])?.seat
+  const secondBot=attackOrder.find(entry=>entry.seat!==firstBot&&game.bots?.[entry.seat])?.seat
+  for(let seat=first;seat<end;seat++){
+    const config=game.bots?.[seat]
+    if(!config){applyInput(game,seat,inputs[seat]||neutralInput,dt);continue}
+    const ship=game.craft[seat], ai=difficulties[config.difficulty]
+    const [lane]=warSpawns[seat-first]
+    const chase=seat===firstBot
+    const support=seat===secondBot
+    const space=42+config.offset*.22
+    const dx=W/2-puck.x,dy=attackGoal-puck.y
+    const length=Math.max(1,Math.hypot(dx,dy))
+    const touch=distance(ship,puck)
+    let x,y
+    if(chase){
+      const corner=(puck.x<65||puck.x>W-65)&&(puck.y<65||puck.y>H-65)
+      x=corner?puck.x+(W/2-puck.x)*.35:puck.x-dx/length*space
+      y=corner?puck.y+(H/2-puck.y)*.27:puck.y-dy/length*space
+      if(!corner&&touch>80){x=puck.x;y=puck.y-direction*24}
+    }else if(support){
+      x=puck.x+(ship.x<puck.x?-65:65)
+      y=puck.y-direction*36
+    }else{
+      x=lane*.66+puck.x*.34+Math.sin(game.elapsed*2+seat)*12
+      y=puck.y-direction*(72+(seat-first)%3*25)
+      y=team===0?clamp(y,145,H-40):clamp(y,40,H-145)
+    }
+    const target=pathToPuck(game,ship,clamp(x,31,W-31),clamp(y,32,H-32))
+    steer(ship,target.x,target.y,ai.speed+config.speed,dt)
+    game.botThink[seat]-=dt
+    if(game.botThink[seat]>0||ship.cd>0||(!chase&&!support))continue
+    game.botThink[seat]=ai.reaction+.08
+    const ahead=(puck.y-ship.y)*direction
+    if(touch<=range&&ahead>16&&Math.abs(puck.x-ship.x)<ahead*1.25)magnet(game,seat,true)
+    else if(chase&&touch>47&&touch<range&&Math.hypot(puck.vx,puck.vy)<70)magnet(game,seat,false)
+  }
+}
+
+function steerPlayer(craft,input,dt) {
+  const targeted=Number.isFinite(input.x)&&Number.isFinite(input.y)
+  const tilt=Math.min(1,Math.hypot(input.dx,input.dy))
+  const strength=targeted?1:tilt**1.65
+  steer(craft,input.x??craft.x+input.dx*90,input.y??craft.y+input.dy*90,365*strength,dt,targeted?27:18)
+}
+
+function applyInput(game,seat,input,dt) {
+  const craft=game.craft[seat]
+  steerPlayer(craft,input,dt)
+  if(input.shot&&input.shot.id>game.lastShot[seat]){
+    game.lastShot[seat]=input.shot.id
+    magnet(game,seat,input.shot.push)
+  }
+}
+
+function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
+  game.effects=game.effects.filter(effect=>(effect.t+=dt)<.34)
+  if(game.phase==='serve'){
+    game.serve-=dt
+    if(game.serve<=0)game.phase='play'
+    return
+  }
+  if(game.phase==='goal'){
+    game.delay-=dt
+    if(game.delay<=0)resetRound(game)
+    return
+  }
+  if(game.phase!=='play')return
+  game.elapsed+=dt
+  const solo=game.mode==='practice'||game.mode==='circuit'
+  if(!solo&&!game.extra){
+    game.clock=Math.max(0,game.clock-dt)
+    if(game.clock===0){
+      if(game.score[0]!==game.score[1]){
+        game.winner=game.score[0]>game.score[1]?0:1
+        game.phase='over'
+        return
+      }
+      game.extra=true
+      resetRound(game)
+      return
+    }
+  }
+  if(game.mode==='warzone'){
+    runWarTeam(game,0,inputs,dt)
+    runWarTeam(game,1,inputs,dt)
+  }else{
+    applyInput(game,0,inputs[0]||neutralInput,dt)
+    if(game.mode==='bot')runAI(game,dt)
+    else if(!solo)applyInput(game,1,inputs[1]||neutralInput,dt)
+  }
+  const craft=solo?[game.craft[0]]:game.craft
+  const puck=game.puck, bumpers=activeField(game).bumpers
+  for(let pass=0;pass<3;pass++){
+    for(let first=0;first<craft.length-1;first++)for(let second=first+1;second<craft.length;second++)
+      separate(craft[first],craft[second],28,.5,.5,.25)
+    for(const body of craft){
+      for(const bumper of bumpers) separate(body,bumper,14+bumper.r,1,0,.15)
+      setInside(body,15)
+    }
+  }
+  for(const body of craft)separate(body,puck,23,0,1,.26)
+  puck.x+=puck.vx*dt
+  puck.y+=puck.vy*dt
+  const damping=Math.pow(.37,dt)
+  puck.vx*=damping
+  puck.vy*=damping
+  for(const bumper of bumpers)separate(puck,bumper,8+bumper.r,1,0,.86)
+  collideCorner(puck,8,.86)
+  if(puck.x<wall+8||puck.x>W-wall-8){
+    puck.x=clamp(puck.x,wall+8,W-wall-8);puck.vx*=-.86
+  }
+  const opening=Math.abs(puck.x-W/2)<goal-8
+  if(opening&&puck.y<wall-4){changeGoal(game,0);return}
+  if(opening&&puck.y>H-wall+4){changeGoal(game,1);return}
+  if(!opening&&(puck.y<wall+8||puck.y>H-wall-8)){
+    puck.y=clamp(puck.y,wall+8,H-wall-8);puck.vy*=-.86
+  }
+  releasePinnedPuck(game,craft,dt)
+  if((game.frame=(game.frame||0)+1)%3===0){
+    game.trail.push({x:puck.x,y:puck.y})
+    if(game.trail.length>11)game.trail.shift()
+  }
+}
+
+const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
+if(typeof module!=='undefined')module.exports=api
+else globalThis.MagnetEngine=api
+
+
+
+
+})()
+</script>
+<script>
+'use strict'
+const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
+const $=id=>document.getElementById(id)
+const canvas=$('field'),ctx=canvas.getContext('2d')
+const held=new Set()
+const online={connection:null,seat:0,busy:false,errors:0,rematch:false}
+const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ffe676','#68ffd9','#79b8ff','#e78aff'],gold:['#fff1b0','#ffb84c','#fb8233'],comet:['#efffff','#7aeeff','#7296ff']}
+let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
+let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
+const coinPrices={ice:90,comet:150}
+const gearNames={ice:'Ice Ship',comet:'Comet Burst',prism:'Prism',gold:'Gold'}
+let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
+let practicing=false,practiceBank=0
+let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
+let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
+let backdrop=null, backdropKey=null, localPose=null
+let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
+let pingMs=null, pingUpdated=0, lastPing=0, pingSerial=0, pingProbe=null
+
+function saved(key,value){
+  try {
+    if(value!==undefined)localStorage.setItem('magnet-'+key,value)
+    return localStorage.getItem('magnet-'+key)
+  }catch{return null}
+}
+profile=saved('profile')
+let buttonSide=saved('button-side')==='right'?'right':'left'
+function updateButtonSide(){
+  $('match-stage').dataset.side=buttonSide
+  write('control-side','Buttons: '+(buttonSide==='left'?'Left':'Right'))
+  $('control-side').setAttribute('aria-label','Move action buttons to the '+(buttonSide==='left'?'right':'left'))
+}
+function safeCosmetic(value){return gear.includes(value)||ownsPack&&['prism','gold'].includes(value)?value:'classic'}
+for(const [index,field] of fields.entries()){
+  const option=document.createElement('option')
+  option.value=index
+  option.textContent=field.name
+  $('field-picker').append(option)
+}
+function changeField(){
+  if(online.connection)return
+  currentField=Number($('field-picker').value)
+  if(menu || game.phase==='over'){
+    if(menu)game=createGame({mode:'online',field:currentField})
+    renderHud()
+    return
+  }
+  setMenu()
+}
+$('field-picker').addEventListener('change',changeField)
+function clearPlayState(){
+  pointer=null
+  held.clear()
+  shot=null
+  previousEvent=''
+  previousOverlay=''
+  bursts=[]
+  pos=null
+  localPose=null
+  snapshotArrival=0
+  cachedStatus=''
+}
+function setMenu(){
+  practicing=false
+  practiceBank=0
+  clearPlayState()
+  menu=true
+  game=createGame({mode:'online',field:currentField})
+  cachedStatus='First to 3'
+  renderHud()
+}
+function startPractice(){
+  clearPlayState()
+  practicing=true
+  practiceBank=0
+  menu=false
+  game=createGame({mode:'bot',difficulty:'training',field:currentField})
+  renderHud()
+}
+function goReplay(){
+  if(practicing){startPractice();return}
+  if(menu){openLobby();return}
+  if(online.connection){
+    online.rematch=true
+    renderHud()
+  }
+}
+function showDialog(id){
+  const dialog=$(id)
+  if(!dialog.open)dialog.showModal()
+  pointer=null
+  held.clear()
+}
+function closeDialog(id){
+  const dialog=$(id)
+  if(dialog.open)dialog.close()
+}
+const anyDialog=()=>[...document.querySelectorAll('dialog')].some(dialog=>dialog.open)
+function beep(freq,duration,type='sine'){
+  if(!sound||!audio||audio.state!=='running')return
+  const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime
+  osc.type=type;osc.frequency.value=freq
+  gain.gain.setValueAtTime(.08,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
+  osc.connect(gain).connect(audio.destination);osc.start(now);osc.stop(now+duration)
+}
+function celebrate(x,y,theme){
+  const colors=themeColors[theme]||themeColors.classic
+  for(let i=0;i<36;i++){
+    const angle=i*Math.PI*2/36
+    const speed=50+((i*43)%150)
+    bursts.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,color:colors[i%colors.length],life:.45+i%4*.12})
+  }
+}
+function renderEvent(){
+  const event=game.event
+  const key=(online.matchId||'local')+':'+event.id
+  if(previousEvent===key||!event.id)return
+  previousEvent=key
+  const ours=event.seat===(event.kind==='goal'?teamOf(game,online.seat):online.seat)
+  if(event.kind==='goal'){
+    celebrate(180,event.seat===0?24:H-24,(game.mode!=='warzone'&&online.state?.looks?.[event.seat]?.goal)||(ours?cosmetic:'classic'))
+    beep(ours?660:175,.36,'triangle')
+    cachedStatus=ours?'Goal!':'Opponent scores'
+  }
+  if(event.kind==='push'||event.kind==='pull'){
+    beep(event.kind==='push'?260:490,.12,'triangle')
+    if(ours)cachedStatus=''
+  }
+  if(event.kind==='miss'&&ours){cachedStatus='Get closer to the puck';beep(105,.10)}
+  if(event.kind==='reset')cachedStatus='Puck reset'
+  if(event.kind==='release')beep(310,.12,'triangle')
+}
+function showOverlay(title,message,replay,offer){
+  const key=JSON.stringify([title,message,replay,offer])
+  if(previousOverlay===key)return
+  previousOverlay=key
+  $('title').textContent=title
+  $('message').textContent=message
+  $('replay').hidden=!replay
+  $('replay').disabled=Boolean(online.rematch)
+  $('replay').textContent=replay||''
+  $('result-shop').hidden=!offer
+}
+function write(id,text){
+  const node=$(id)
+  if(node.textContent!==text)node.textContent=text
+}
+function renderHud(){
+  write('coin-total',coins+' coins')
+  const remaining=refillDeadline===null?null:Math.max(0,Math.ceil((refillDeadline-performance.now())/1000))
+  write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
+    String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
+  $('game-root').dataset.match=String(!menu)
+  write('home-player',username|| (profileError?'Play offline while reconnecting':'Loading player…'))
+  $('home-view').hidden=!menu
+  $('match-view').hidden=menu
+  const solo=game.mode==='practice'||game.mode==='circuit'
+  const seat=online.seat
+  const names=online.state?.names
+  const war=game.mode==='warzone'
+  const ownTeam=teamOf(game,seat)
+  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names||[username||'YOU',practicing?'Practice':'']
+  write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
+  write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
+  const clock=Math.ceil(game.clock)
+  const clockText=Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0')
+  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teams…':'Finding opponent…'):
+    game.phase==='serve'?(game.extra?'Sudden death':'Get ready'):
+    game.phase==='goal'?cachedStatus||'Goal':
+    solo?(cachedStatus||activeField(game).name):
+    game.extra?'Sudden death':cachedStatus||clockText)
+  const overlay=menu||game.phase==='over'||Boolean(online.connection&&!online.matchId)
+  const playing=!overlay&&!anyDialog()
+  const locked=String(playing)
+  if(document.documentElement.dataset.gameLocked!==locked)document.documentElement.dataset.gameLocked=locked
+  const ping=$('ping-display')
+  ping.hidden=!online.connection||!online.matchId
+  const freshPing=pingMs!==null&&performance.now()-pingUpdated<4500
+  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping —')
+  ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
+  $('overlay').hidden=!overlay
+  $('match-stage').dataset.overlay=String(overlay)
+  $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
+  if(menu){
+    showOverlay(fields[currentField].name,'Drag to steer. Pull the puck close, then push it into the opposing goal.','Open Online',false)
+  }else if(online.connection&&!online.matchId){
+    showOverlay(online.war?'Finding teams':online.ranked?'Finding a rival':'Waiting for friend',
+      online.war?'Building two teams of five. Your match will start in a few seconds.':online.ranked?'Your match should start in a few seconds.':'Open Online to see your room code.',null,false)
+  }else if(game.phase==='over'){
+    let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
+      war?(game.winner===ownTeam?'Your team wins!':'Other team wins'):game.winner===seat?'You win!':'Opponent wins'
+    let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
+    if(online.state?.result?.coins){
+      const change=online.state.result.coins
+      message+=' · '+(change>0?'+':'')+change+' Arena Coins'
+    }
+    if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
+    if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
+    if(ownsPack&&game.winner===ownTeam)message+=' · Founders'
+    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
+    showOverlay(title,message,replay,!ownsPack)
+  }
+  const craft=game.craft[seat]
+  const live=!menu&&game.phase==='play'&&(!online.connection||Boolean(online.matchId))
+  const ready=live&&craft.cd<=0
+  for(const id of ['push','pull']){
+    const button=$(id)
+    const value=String(!ready)
+    if(button.getAttribute('aria-disabled')!==value)button.setAttribute('aria-disabled',value)
+    const timer=$(id+'-time')
+    timer.hidden=!live||craft.cd<=0
+    if(!timer.hidden)write(id+'-time',cooldownLabel(craft.cd))
+  }
+}
+function cooldownLabel(seconds){
+  return (seconds>1?Math.ceil(seconds):(Math.ceil(seconds*10)/10).toFixed(1))+'s'
+}
+function stroke(x,y,xx,yy,color,width=1,g=ctx){
+  g.beginPath();g.moveTo(x,y);g.lineTo(xx,yy);g.strokeStyle=color;g.lineWidth=width;g.stroke()
+}
+function ring(x,y,r,color,width=1,g=ctx){
+  g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.strokeStyle=color;g.lineWidth=width;g.stroke()
+}
+function disc(x,y,r,color,g=ctx){
+  g.fillStyle=color;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()
+}
+function drawShip(g,x,y,color,style,aim=0,scale=1){
+  g.save()
+  g.translate(x,y)
+  g.rotate(aim)
+  g.scale(scale,scale)
+  g.fillStyle=color;g.beginPath();g.arc(0,0,14,0,Math.PI*2);g.fill()
+  g.fillStyle='#111831';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill()
+  g.strokeStyle=style==='prism'?'#d3a5ff':style==='gold'?'#ffd182':style==='ice'?'#8ef0ff':color
+  g.lineWidth=2.2
+  g.beginPath()
+  if(style==='prism'){
+    g.moveTo(9,0);g.lineTo(0,-6);g.lineTo(-8,0);g.lineTo(0,6);g.closePath()
+  }else if(style==='ice'){
+    g.moveTo(-8,0);g.lineTo(0,-7);g.lineTo(9,0);g.lineTo(0,7);g.closePath()
+    g.moveTo(-4,0);g.lineTo(5,0)
+  }else if(style==='gold'){
+    g.moveTo(-6,-6);g.lineTo(3,0);g.lineTo(-6,6)
+    g.moveTo(-1,-6);g.lineTo(8,0);g.lineTo(-1,6)
+  }else{
+    g.moveTo(0,0);g.lineTo(12,0)
+  }
+  g.stroke()
+  g.restore()
+}
+function arenaBackdrop(field){
+  if(backdrop&&backdropKey===field.name)return backdrop
+  backdrop??=document.createElement('canvas')
+  backdrop.width=canvas.width
+  backdrop.height=canvas.height
+  const g=backdrop.getContext('2d')
+  g.setTransform(2,0,0,2,0,0)
+  g.clearRect(0,0,W,H)
+  g.fillStyle='#263657'
+  for(let x=24;x<W;x+=24)for(let y=24;y<H;y+=24)g.fillRect(x,y,2,2)
+  stroke(wall,H/2,W-wall,H/2,'#36426b',1,g)
+  ring(180,260,52,'#36426b',1,g)
+  const inset=wall+cornerRadius
+  for(const [y,color] of [[wall,game.craft[game.craft.length-1].color],[H-wall,game.craft[0].color]]){
+    stroke(inset,y,180-goal,y,'#7184ae',3,g);stroke(180+goal,y,W-inset,y,'#7184ae',3,g)
+    g.shadowColor=color;g.shadowBlur=15
+    stroke(180-goal,y,180+goal,y,color,5,g)
+    g.shadowBlur=0
+  }
+  stroke(wall,inset,wall,H-inset,'#7184ae',3,g)
+  stroke(W-wall,inset,W-wall,H-inset,'#7184ae',3,g)
+  for(const [x,y,angle] of [[inset,inset,Math.PI],[W-inset,inset,-Math.PI/2],
+    [W-inset,H-inset,0],[inset,H-inset,Math.PI/2]]){
+    g.beginPath()
+    g.arc(x,y,cornerRadius,angle,angle+Math.PI/2)
+    g.strokeStyle='#7184ae'
+    g.lineWidth=3
+    g.stroke()
+  }
+  for(const obstacle of field.bumpers){
+    disc(obstacle.x,obstacle.y,obstacle.r,'#3a2651',g)
+    ring(obstacle.x,obstacle.y,obstacle.r,'#d193ff',2,g)
+    ring(obstacle.x,obstacle.y,obstacle.r-7,'#78539d',1.5,g)
+  }
+  backdropKey=field.name
+  return backdrop
+}
+function draw(dt){
+  ctx.setTransform(2,0,0,2,0,0)
+  ctx.clearRect(0,0,W,H)
+  const field=activeField(game)
+  ctx.drawImage(arenaBackdrop(field),0,0,W,H)
+  const solo=game.mode==='practice'||game.mode==='circuit'
+  const targets=[...game.craft,game.puck]
+  if(!pos||pos.length!==targets.length)pos=targets.map(body=>({x:body.x,y:body.y}))
+  const predict=online.connection&&game.phase==='play'&&snapshotArrival?
+    clamp((performance.now()-snapshotArrival)/1000,0,.10):0
+  targets.forEach((body,index)=>{
+    const x=clamp(body.x+body.vx*predict,0,W)
+    const y=clamp(body.y+body.vy*predict,0,H)
+    if(index===online.seat&&online.connection&&game.phase==='play'){
+      localPose??={...body}
+      const input=inputState()
+      const driving=Number.isFinite(input.x)||Boolean(input.dx||input.dy)
+      steerPlayer(localPose,input,dt)
+      const offset=Math.hypot(x-localPose.x,y-localPose.y)
+      const blend=offset>100?1:1-Math.exp(-dt*(driving&&offset<42?5:16))
+      localPose.x+=(x-localPose.x)*blend
+      localPose.y+=(y-localPose.y)*blend
+      for(const bumper of field.bumpers)separate(localPose,bumper,14+bumper.r,1,0,.15)
+      pos[index].x=localPose.x
+      pos[index].y=localPose.y
+      return
+    }
+    if(index===online.seat)localPose=null
+    const blend=!online.connection||Math.hypot(pos[index].x-body.x,pos[index].y-body.y)>110?1:1-Math.exp(-dt*20)
+    pos[index].x+=(x-pos[index].x)*blend
+    pos[index].y+=(y-pos[index].y)*blend
+  })
+  const puck=pos[game.craft.length]
+  const ours=pos[online.seat], color=game.craft[online.seat].color
+  if(!menu&&game.phase==='play'){
+    ctx.setLineDash([3,6])
+    ring(ours.x,ours.y,range,distance(ours,puck)<=range?color+'70':color+'25')
+    ctx.setLineDash([])
+  }
+  for(const effect of game.effects){
+    ctx.globalAlpha=1-effect.t/.34
+    ring(effect.x,effect.y,effect.push?20+effect.t*280:112-effect.t*260,effect.color,3)
+  }
+  ctx.globalAlpha=1
+  game.trail.forEach((point,i)=>{ctx.globalAlpha=i*.035;disc(point.x,point.y,3+i*.38,'#f9dc79')})
+  ctx.globalAlpha=1
+  for(let seat=0;seat<(solo?1:game.craft.length);seat++){
+    const ship=pos[seat], shipColor=game.craft[seat].color
+    const aim=Math.atan2(puck.y-ship.y,puck.x-ship.x)
+    if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
+    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim)
+  }
+  disc(puck.x,puck.y,11,'#ffdb753a')
+  disc(puck.x,puck.y,8,'#ffe382')
+  bursts=bursts.filter(particle=>{
+    particle.life-=dt
+    if(particle.life<=0)return false
+    particle.x+=particle.vx*dt;particle.y+=particle.vy*dt
+    ctx.globalAlpha=Math.min(1,particle.life*2)
+    disc(particle.x,particle.y,2.5,particle.color)
+    return true
+  })
+  ctx.globalAlpha=1
+  if(!menu&&game.phase==='serve'){
+    ctx.font='800 22px system-ui';ctx.textAlign='center';ctx.fillStyle='#fff'
+    ctx.fillText(game.extra?'SUDDEN DEATH':'READY',W/2,H/2+6)
+  }
+}
+const axis=(positive,negative,extraPositive,extraNegative)=>Number(held.has(positive)||held.has(extraPositive))-Number(held.has(negative)||held.has(extraNegative))
+function inputState(){
+  const dx=axis('d','a','arrowright','arrowleft')
+  const dy=axis('s','w','arrowdown','arrowup')
+  const target=pointer&&(pointer.active!==false||performance.now()<pointer.until)?pointer:null
+  return {x:dx||dy?undefined:target?.x,y:dx||dy?undefined:target?.y,dx,dy,shot}
+}
+function frame(now){
+  const dt=clamp((now-frameTime)/1000,0,.05)
+  frameTime=now
+  if(pointer&&(game.phase!=='play'||pointer.active===false&&now>=pointer.until))pointer=null
+  if(practicing&&!anyDialog()){
+    const input=inputState()
+    practiceBank+=dt
+    while(practiceBank>=stepSeconds){step(game,[input]);practiceBank-=stepSeconds}
+  }
+  if(username&&refillDeadline!==null&&now>=refillDeadline&&now>=nextRefillCheck){
+    nextRefillCheck=now+4000
+    refreshProfile()
+  }
+  renderEvent()
+  if(!menu)draw(dt)
+  if(now-lastHud>=70){lastHud=now;renderHud()}
+  requestAnimationFrame(frame)
+}
+$('match-view').addEventListener('contextmenu',event=>event.preventDefault())
+$('match-view').addEventListener('selectstart',event=>event.preventDefault())
+$('match-view').addEventListener('dblclick',event=>event.preventDefault())
+function blockMatchZoom(event){
+  if(document.documentElement.dataset.gameLocked==='true'&&event.cancelable)event.preventDefault()
+}
+for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,blockMatchZoom,{passive:false})
+let lastActionTap=0
+$('match-view').addEventListener('touchend',event=>{
+  if(!event.target.closest('.magnet-buttons button'))return
+  const now=performance.now()
+  if(lastActionTap&&now-lastActionTap<350)blockMatchZoom(event)
+  lastActionTap=now
+},{passive:false})
+const steerSurface=$('match-view')
+function movePointer(event){
+  if(pointer.relative){
+    pointer.x=clamp(pointer.originX+(event.clientX-pointer.startX)*pointer.scaleX,0,W)
+    pointer.y=clamp(pointer.originY+(event.clientY-pointer.startY)*pointer.scaleY,0,H)
+    return
+  }
+  const rect=canvas.getBoundingClientRect()
+  pointer.x=clamp((event.clientX-rect.left)*W/rect.width,0,W)
+  pointer.y=clamp((event.clientY-rect.top)*H/rect.height,0,H)
+}
+steerSurface.addEventListener('pointerdown',event=>{
+  if(event.button!==0||menu||game.phase!=='play'||pointer?.active||anyDialog())return
+  if(event.target.closest('button, a, input, select, .overlay'))return
+  const relative=event.pointerType==='touch'||event.pointerType==='pen'
+  if(!relative&&event.target!==canvas)return
+  const rect=canvas.getBoundingClientRect()
+  if(!rect.width||!rect.height)return
+  if(event.cancelable)event.preventDefault()
+  const craft=pos?.[online.seat]||game.craft[online.seat]
+  pointer={id:event.pointerId,active:true,relative,originX:craft.x,originY:craft.y,
+    startX:event.clientX,startY:event.clientY,scaleX:W/rect.width*1.15,scaleY:H/rect.height*1.15}
+  steerSurface.setPointerCapture(event.pointerId)
+  movePointer(event)
+  syncOnline()
+})
+steerSurface.addEventListener('pointermove',event=>{
+  if(!pointer?.active||pointer.id!==event.pointerId)return
+  if(event.cancelable)event.preventDefault()
+  movePointer(event)
+  syncOnline()
+})
+for(const type of ['pointerup','pointercancel','lostpointercapture'])steerSurface.addEventListener(type,event=>{
+  if(!pointer?.active||pointer.id!==event.pointerId)return
+  if(type==='pointerup'&&pointer.relative){
+    movePointer(event)
+    pointer.active=false
+    pointer.until=performance.now()+175
+  }else{
+    pointer=null
+  }
+  syncOnline()
+})
+function shoot(push){
+  if(menu||game.phase!=='play'||anyDialog()||game.craft[online.seat].cd>0)return
+  shot={id:++shotSerial,push}
+  syncOnline(true)
+}
+window.addEventListener('keydown',event=>{
+  const key=event.key.toLowerCase()
+  if(menu||anyDialog()||!['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright','q','e'].includes(key))return
+  event.preventDefault();held.add(key)
+  if(!event.repeat&&(key==='q'||key==='e'))shoot(key==='e')
+})
+window.addEventListener('keyup',event=>held.delete(event.key.toLowerCase()))
+window.addEventListener('blur',()=>{held.clear();pointer=null})
+$('replay').addEventListener('click',goReplay)
+for(const id of ['push','pull']){
+  const button=$(id)
+  const trigger=()=>shoot(id==='push')
+  button.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return
+    if(event.cancelable)event.preventDefault()
+    trigger()
+  })
+  button.addEventListener('click',event=>{if(event.detail===0)trigger()})
+}
+$('control-side').addEventListener('click',()=>{
+  buttonSide=buttonSide==='left'?'right':'left'
+  saved('button-side',buttonSide)
+  updateButtonSide()
+})
+updateButtonSide()
+$('sound').addEventListener('click',async()=>{
+  sound=!sound
+  if(sound){
+    try{audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();beep(440,.1)}
+    catch{sound=false}
+  }
+  write('sound',sound?'Sound on':'Sound off')
+  $('sound').setAttribute('aria-pressed',String(sound))
+})
+for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>closeDialog(button.dataset.close))
+
+async function api(route,data){
+  if(location.protocol==='file:')throw new Error('Launch the multiplayer download to connect to the game server.')
+  const controller=new AbortController()
+  const timer=setTimeout(()=>controller.abort(),3600)
+  try{
+    const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal})
+    const body=await response.json()
+    if(body.error)throw new Error(body.error)
+    if(!response.ok)throw new Error('Server unavailable.')
+    return body
+  }finally{clearTimeout(timer)}
+}
+function setProfile(key){
+  if(key){profile=key;saved('profile',key)}
+}
+function applyProfile(data){
+  if(!data.profile){
+    profile=null
+    username=null
+    coins=0
+    gear=[]
+    refillDeadline=null
+    ownsPack=false
+    checkoutReady=false
+    cosmetic='classic'
+    shipStyle='classic'
+    guestMode=true
+    accountEmail=null
+    saved('profile','')
+    return
+  }
+  setProfile(data.profile)
+  username=data.username
+  guestMode=Boolean(data.guest)
+  accountEmail=data.email||null
+  if(guestMode&&username)saved('guest-profile',profile)
+  else if(saved('guest-profile')===profile)saved('guest-profile','')
+  if(!guestMode&&saved('guest-device')===profile)saved('guest-device','')
+  coins=data.coins||0
+  refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
+  gear=data.gear||[]
+  ownsPack=data.ownsPack
+  checkoutReady=data.checkoutReady
+  cosmetic=safeCosmetic(saved('cosmetic'))
+  shipStyle=safeCosmetic(saved('ship-style'))
+  write('rating',username?'Rating '+data.rating:'')
+  updateShop()
+}
+function guestDevice(){
+  const cached=saved('guest-device')
+  if(/^[a-f0-9]{48}$/.test(cached||''))return cached
+  const bytes=new Uint8Array(24)
+  window.crypto.getRandomValues(bytes)
+  const id=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('')
+  saved('guest-device',id)
+  return id
+}
+async function refreshProfile(){
+  if(location.protocol==='file:')return
+  if(profileRequest)return profileRequest
+  profileRequest=(async()=>{
+    try{
+      const savedGuest=saved('guest-profile')
+      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:guestDevice()})
+      profileError=''
+      applyProfile(data)
+    }catch{
+      profileError='Could not connect to your player profile. Try again in a moment.'
+    }finally{profileRequest=null}
+  })()
+  return profileRequest
+}
+function updateAccountCard(){
+  write('account-summary',username||'Connecting to your profile…')
+  write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
+  $('rename-account').disabled=!username
+  $('register-account').hidden=Boolean(username&&!guestMode)
+  $('switch-account').hidden=!username||guestMode
+}
+function openAccount(){
+  $('account-form').hidden=true
+  $('account-choices').hidden=false
+  updateAccountCard()
+  write('account-message',profileError)
+  showDialog('account-dialog')
+  if(!username)refreshProfile().then(()=>{
+    updateAccountCard()
+    write('account-message',profileError)
+  })
+}
+function chooseAccount(action){
+  accountMode=action
+  const rename=action==='rename'
+  const register=action==='register'
+  $('account-choices').hidden=true
+  $('account-form').hidden=false
+  $('username-row').hidden=!rename
+  $('username').required=rename
+  $('username').value=rename?username||'':''
+  $('email-row').hidden=rename
+  $('email').required=!rename
+  $('email').type=register?'email':'text'
+  $('email').value=''
+  $('password-row').hidden=rename
+  $('password').required=!rename
+  $('password').autocomplete=register?'new-password':'current-password'
+  $('password').value=''
+  write('email-label',register?'Email address':'Email or player name')
+  write('account-submit',rename?'Save name':register?'Save account':'Sign in')
+  write('account-form-help',register?'Keep your coins and unlocked gear when you switch devices.':
+    rename?'This name appears on your scoreboard.':'Use your saved account details.')
+  write('account-message','')
+  $(rename?'username':'email').focus()
+}
+$('account').addEventListener('click',openAccount)
+$('rename-account').addEventListener('click',()=>chooseAccount('rename'))
+$('register-account').addEventListener('click',()=>chooseAccount('register'))
+$('login-account').addEventListener('click',()=>chooseAccount('login'))
+$('account-back').addEventListener('click',openAccount)
+$('switch-account').addEventListener('click',async()=>{
+  if(activeMatch()){write('account-message','Finish your match before switching accounts.');return}
+  if(online.connection){
+    try{await api('/room',{action:'leave',token:online.connection.token})}catch{}
+    resetOnline()
+  }
+  applyProfile({})
+  await refreshProfile()
+  openAccount()
+})
+$('account-form').addEventListener('submit',async event=>{
+  event.preventDefault()
+  const button=$('account-submit')
+  if(activeMatch()&&accountMode!=='rename'){
+    write('account-message','Finish your match before changing sign-in details.')
+    return
+  }
+  button.disabled=true
+  try{
+    if(accountMode==='register'&&!username)await refreshProfile()
+    if(accountMode==='register'&&!username)throw new Error(profileError||'Player profile unavailable.')
+    const action=accountMode
+    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile}))
+    $('password').value=''
+    openAccount()
+    write('account-message',action==='register'?'Account saved. Your progress is still here.':action==='rename'?'Player name updated.':'Signed in.')
+  }catch(error){write('account-message',error.message)}
+  finally{button.disabled=false}
+})
+function resetOnline(){
+  closeMatchStream()
+  streamFailures=0
+  streamRetry=0
+  pingMs=null
+  pingProbe=null
+  lastPing=0
+  online.connection=null
+  online.seat=0
+  online.matchId=null
+  online.state=null
+  online.ranked=false
+  online.war=false
+  online.rematch=false
+  online.errors=0
+  $('field-picker').disabled=false
+  $('host').disabled=$('ranked').disabled=$('warzone').disabled=$('join-submit').disabled=false
+  $('copy').hidden=true
+  write('room-code','')
+  write('room-message','')
+  setMenu()
+}
+async function connect(action){
+  if(online.connecting||online.connection)return
+  if(!username)await refreshProfile()
+  if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
+  online.connecting=true
+  write('room-message','Connecting…')
+  try{
+    const result=await api('/room',{action,profile,field:currentField,code:$('room-input').value.trim().toUpperCase()})
+    setProfile(result.profile)
+    clearPlayState()
+    online.connection=result
+    online.war=action==='warzone'
+    online.ranked=action==='rank'||online.war
+    menu=false
+    practicing=false
+    $('field-picker').disabled=true
+    write('room-code',result.code||'')
+    $('copy').hidden=!result.code
+    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teams…':'Looking for an opponent…')
+    openMatchStream()
+    await syncOnline(true)
+  }catch(error){write('room-message',error.message)}
+  finally{online.connecting=false}
+}
+function matchInput(){
+  return {action:'sync',token:online.connection.token,input:inputState(),look:{ship:shipStyle,goal:cosmetic},rematch:online.rematch}
+}
+function closeMatchStream(){
+  const old=matchSocket
+  matchSocket=null
+  streamReady=false
+  pingProbe=null
+  old?.close()
+}
+function recordPing(elapsed){
+  if(!Number.isFinite(elapsed)||elapsed<0||elapsed>5000)return
+  pingMs=pingMs===null?elapsed:pingMs*.65+elapsed*.35
+  pingUpdated=performance.now()
+}
+function openMatchStream(){
+  if(typeof WebSocket==='undefined'||matchSocket||!online.connection||streamFailures>=3)return
+  const url=new URL('/match-stream',location.href)
+  url.protocol=location.protocol==='https:'?'wss:':'ws:'
+  const connection=online.connection
+  try{
+    const socket=new WebSocket(url)
+    matchSocket=socket
+    socket.addEventListener('open',()=>{
+      if(matchSocket===socket&&online.connection===connection)socket.send(JSON.stringify(matchInput()))
+    })
+    socket.addEventListener('message',event=>{
+      if(matchSocket!==socket||online.connection!==connection)return
+      let state
+      try{state=JSON.parse(event.data)}catch{return}
+      if(Number.isSafeInteger(state.pong)){
+        if(pingProbe?.id===state.pong){
+          recordPing(performance.now()-pingProbe.started)
+          pingProbe=null
+        }
+        return
+      }
+      if(state.error){
+        closeMatchStream()
+        streamRetry=performance.now()+1000
+        return
+      }
+      streamReady=true
+      streamFailures=0
+      streamLastMessage=performance.now()
+      applyOnlineState(state)
+    })
+    socket.addEventListener('close',()=>{
+      if(matchSocket!==socket)return
+      closeMatchStream()
+      streamFailures++
+      streamRetry=performance.now()+500*2**(streamFailures-1)
+    })
+  }catch{
+    streamFailures++
+    streamRetry=performance.now()+500*2**(streamFailures-1)
+  }
+}
+let streamLastMessage=0
+function applyOnlineState(state){
+  online.errors=0
+  online.state=state
+  if(state.notice)online.rematch=false
+  if(state.result?.coins&&rewardMatch!==state.matchId){
+    rewardMatch=state.matchId
+    coins=state.result.balance
+  }
+  if(!state.game){
+    if(online.rematch&&state.queued){
+      online.matchId=null
+      online.rematch=false
+      write('room-message',online.war?'Finding teams…':'Looking for a rival…')
+    }
+    return
+  }
+  if(state.matchId!==online.matchId){
+    clearPlayState()
+    online.matchId=state.matchId
+    online.seat=state.seat
+    online.rematch=false
+    game=state.game
+    $('field-picker').value=String(game.field)
+    write('room-message','You are '+(teamOf(game,state.seat)===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
+    closeDialog('lobby-dialog')
+  }else{
+    if(game.phase!=='serve'&&state.game.phase==='serve'){pos=null;localPose=null}
+    game=state.game
+  }
+  snapshotArrival=performance.now()
+  if(online.rematch&&state.queued){
+    online.matchId=null
+    online.rematch=false
+    write('room-message',online.war?'Finding teams…':'Looking for a rival…')
+  }
+}
+async function syncOnline(urgent=false){
+  if(!online.connection)return
+  const now=performance.now()
+  if(streamReady&&now-streamLastMessage>1300){
+    closeMatchStream()
+    streamRetry=now+750
+  }
+  if(!matchSocket&&now>=streamRetry)openMatchStream()
+  const minimum=online.matchId&&game.phase!=='over'?(streamReady?30:45):180
+  if(!urgent&&now-lastSync<minimum)return
+  if(streamReady&&matchSocket?.readyState===1){
+    if(matchSocket.bufferedAmount<4000){
+      lastSync=now
+      const data=matchInput()
+      if(now-lastPing>=2000||!lastPing){
+        lastPing=now
+        pingProbe={id:++pingSerial,started:now}
+        data.ping=pingProbe.id
+      }
+      matchSocket.send(JSON.stringify(data))
+    }
+    return
+  }
+  if(online.busy)return
+  lastSync=now
+  online.busy=true
+  const connection=online.connection
+  try{
+    const state=await api('/room',matchInput())
+    if(connection!==online.connection||streamReady)return
+    recordPing(performance.now()-now)
+    applyOnlineState(state)
+  }catch(error){
+    if(connection===online.connection&&!streamReady&&++online.errors>=7){
+      resetOnline()
+      write('room-message','Connection lost. Create or join another room.')
+      showDialog('lobby-dialog')
+    }
+  }finally{online.busy=false}
+}
+function activeMatch(){
+  return Boolean(online.matchId&&game.phase!=='over')
+}
+async function openLobby(){
+  if(!username&&location.protocol!=='file:')await refreshProfile()
+  write('selected-field',online.matchId?activeField(game).name:fields[currentField].name)
+  if(profileError)write('room-message',profileError)
+  $('host').disabled=$('ranked').disabled=$('warzone').disabled=$('join-submit').disabled=activeMatch()
+  showDialog('lobby-dialog')
+}
+$('lobby').addEventListener('click',openLobby)
+$('home-play').addEventListener('click',openLobby)
+$('home-war').addEventListener('click',async()=>{await openLobby();await connect('warzone')})
+$('home-practice').addEventListener('click',startPractice)
+$('home-after-match').addEventListener('click',async()=>{
+  if(!practicing&&game.phase!=='over')return
+  const connection=online.connection
+  resetOnline()
+  if(connection)try{await api('/room',{action:'leave',token:connection.token})}catch{}
+  refreshProfile()
+})
+$('host').addEventListener('click',()=>connect('host'))
+$('ranked').addEventListener('click',()=>connect('rank'))
+$('warzone').addEventListener('click',()=>connect('warzone'))
+$('join').addEventListener('submit',event=>{event.preventDefault();connect('join')})
+$('copy').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('room-code').textContent);write('room-message','Room code copied.')}
+  catch{write('room-message','Share the room code shown above.')}
+})
+setInterval(syncOnline,34)
+
+function updateShop(){
+  $('buy').hidden=ownsPack
+  write('shop-coins',coins+' coins')
+  const style=selectedPreview?.style
+  const cost=coinPrices[style]
+  const canEquip=Boolean(style&&safeCosmetic(style)===style)
+  $('preview-controls').hidden=!selectedPreview||!canEquip&&!cost
+  $('equip-preview').hidden=!canEquip
+  $('unlock-preview').hidden=!cost||canEquip
+  $('unlock-preview').disabled=!username||coins<cost
+  if(cost)write('unlock-preview','Unlock for '+cost+' coins')
+  $('equip-standard-ship').disabled=shipStyle==='classic'
+  $('buy').disabled=!checkoutReady
+  write('buy',checkoutReady?'Buy pack':'Checkout unavailable')
+  for(const button of document.querySelectorAll('[data-equip]')){
+    button.hidden=button.dataset.equip!=='classic'&&!ownsPack
+    button.disabled=button.dataset.equip===cosmetic
+  }
+}
+function showShop(){
+  $('preview').hidden=true
+  $('shop-preview').hidden=true
+  selectedPreview=null
+  updateShop()
+  write('shop-message',ownsPack?'Founders pack unlocked.':
+    checkoutReady?'One payment. Every match and course stays free.':
+    'Coin rewards are available. Founders checkout is not connected.')
+  showDialog('shop-dialog')
+}
+for(const id of ['shop','featured-pack','result-shop'])$(id).addEventListener('click',showShop)
+for(const button of document.querySelectorAll('[data-equip]'))button.addEventListener('click',()=>{
+  cosmetic=safeCosmetic(button.dataset.equip)
+  saved('cosmetic',cosmetic)
+  updateShop()
+  write('shop-message','Celebration equipped.')
+})
+function showGearPreview(){
+  const {type,style}=selectedPreview
+  const name=gearNames[style]+(['prism','gold'].includes(style)?(type==='ship'?' Ship':' Celebration'):'')
+  write('preview-name',name)
+  $('shop-preview').hidden=false
+  $('shop-preview').scrollIntoView({block:'nearest',behavior:'smooth'})
+}
+let previewRun=0
+for(const button of document.querySelectorAll('[data-preview]'))button.addEventListener('click',()=>{
+  selectedPreview={type:'goal',style:button.dataset.preview}
+  showGearPreview()
+  updateShop()
+  const preview=$('preview'),g=preview.getContext('2d'), colors=themeColors[button.dataset.preview]
+  preview.hidden=false
+  const id=++previewRun,start=performance.now()
+  function animate(now){
+    if(id!==previewRun)return
+    const t=Math.min(1,(now-start)/760)
+    g.clearRect(0,0,320,84)
+    g.globalAlpha=1-t*.8
+    for(let i=0;i<32;i++){
+      const angle=i*Math.PI/16
+      g.fillStyle=colors[i%colors.length]
+      g.beginPath()
+      g.arc(160+Math.cos(angle)*t*(40+(i*13)%110),42+Math.sin(angle)*t*(20+(i*7)%23),3,0,Math.PI*2)
+      g.fill()
+    }
+    g.globalAlpha=1
+    if(t<1)requestAnimationFrame(animate)
+  }
+  requestAnimationFrame(animate)
+})
+for(const button of document.querySelectorAll('[data-ship-preview]'))button.addEventListener('click',()=>{
+  previewRun++
+  selectedPreview={type:'ship',style:button.dataset.shipPreview}
+  showGearPreview()
+  const preview=$('preview'),g=preview.getContext('2d')
+  preview.hidden=false
+  g.clearRect(0,0,320,84)
+  drawShip(g,160,42,'#67f7ff',selectedPreview.style,-.25,2.4)
+  updateShop()
+})
+$('equip-preview').addEventListener('click',()=>{
+  if(!selectedPreview||safeCosmetic(selectedPreview.style)!==selectedPreview.style)return
+  if(selectedPreview.type==='ship'){
+    shipStyle=safeCosmetic(selectedPreview.style)
+    saved('ship-style',shipStyle)
+    write('shop-message','Ship equipped.')
+  }else{
+    cosmetic=safeCosmetic(selectedPreview.style)
+    saved('cosmetic',cosmetic)
+    write('shop-message','Goal celebration equipped.')
+  }
+  updateShop()
+})
+$('unlock-preview').addEventListener('click',async()=>{
+  const style=selectedPreview?.style
+  if(!username||!coinPrices[style]||coins<coinPrices[style])return
+  $('unlock-preview').disabled=true
+  try{
+    applyProfile(await api('/redeem',{profile,gear:style}))
+    write('shop-message','Unlocked. You can equip it now.')
+  }catch(error){write('shop-message',error.message);updateShop()}
+})
+$('equip-standard-ship').addEventListener('click',()=>{
+  shipStyle='classic'
+  saved('ship-style',shipStyle)
+  updateShop()
+  write('shop-message','Standard ship equipped.')
+})
+$('buy').addEventListener('click',async()=>{
+  if(!checkoutReady||ownsPack)return
+  $('buy').disabled=true
+  try{
+    const data=await api('/checkout',{profile})
+    location.assign(data.url)
+  }catch(error){write('shop-message',error.message);$('buy').disabled=false}
+})
+async function checkPaymentReturn(){
+  const query=new URLSearchParams(location.search)
+  if(!query.has('checkout'))return
+  history.replaceState(null,'',location.pathname)
+  await refreshProfile()
+  showShop()
+  write('shop-message',ownsPack?'Payment confirmed. Your pack is ready.':
+    query.get('checkout')==='cancel'?'Checkout canceled.':'Payment is being confirmed. Reopen the shop shortly.')
+}
+setMenu()
+requestAnimationFrame(frame)
+refreshProfile()
+checkPaymentReturn()
+
+
+
+
+</script>
+</body>
+</html>
+
+
+
+
+

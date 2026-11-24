@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -117,9 +117,9 @@ function renderEvent(){
   const key=(online.matchId||'local')+':'+event.id
   if(previousEvent===key||!event.id)return
   previousEvent=key
-  const ours=event.seat===online.seat
+  const ours=event.seat===(event.kind==='goal'?teamOf(game,online.seat):online.seat)
   if(event.kind==='goal'){
-    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.seat]?.goal||(ours?cosmetic:'classic'))
+    celebrate(180,event.seat===0?24:H-24,(game.mode!=='warzone'&&online.state?.looks?.[event.seat]?.goal)||(ours?cosmetic:'classic'))
     beep(ours?660:175,.36,'triangle')
     cachedStatus=ours?'Goal!':'Opponent scores'
   }
@@ -158,12 +158,14 @@ function renderHud(){
   const solo=game.mode==='practice'||game.mode==='circuit'
   const seat=online.seat
   const names=online.state?.names
-  const tags=names||[username||'YOU',practicing?'Practice':'']
+  const war=game.mode==='warzone'
+  const ownTeam=teamOf(game,seat)
+  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names||[username||'YOU',practicing?'Practice':'']
   write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)
   const clockText=Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0')
-  write('status',menu?'First to 3':online.connection&&!online.matchId?'Finding opponent?':
+  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teams…':'Finding opponent…'):
     game.phase==='serve'?(game.extra?'Sudden death':'Get ready'):
     game.phase==='goal'?cachedStatus||'Goal':
     solo?(cachedStatus||activeField(game).name):
@@ -183,11 +185,11 @@ function renderHud(){
   if(menu){
     showOverlay(fields[currentField].name,'Drag to steer. Pull the puck close, then push it into the opposing goal.','Open Online',false)
   }else if(online.connection&&!online.matchId){
-    showOverlay(online.ranked?'Finding a rival':'Waiting for friend',
-      online.ranked?'Your match should start in a few seconds.':'Open Online to see your room code.',null,false)
+    showOverlay(online.war?'Finding teams':online.ranked?'Finding a rival':'Waiting for friend',
+      online.war?'Building two teams of five. Your match will start in a few seconds.':online.ranked?'Your match should start in a few seconds.':'Open Online to see your room code.',null,false)
   }else if(game.phase==='over'){
     let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
-      game.winner===seat?'You win!':'Opponent wins'
+      war?(game.winner===ownTeam?'Your team wins!':'Other team wins'):game.winner===seat?'You win!':'Opponent wins'
     let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
     if(online.state?.result?.coins){
       const change=online.state.result.coins
@@ -195,8 +197,8 @@ function renderHud(){
     }
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
-    if(ownsPack&&game.winner===seat)message+=' · Founders'
-    const replay=online.rematch?'Waiting for rival':online.ranked?'Find another match':'Rematch'
+    if(ownsPack&&game.winner===ownTeam)message+=' · Founders'
+    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
     showOverlay(title,message,replay,!ownsPack)
   }
   const craft=game.craft[seat]
@@ -260,7 +262,7 @@ function arenaBackdrop(field){
   stroke(wall,H/2,W-wall,H/2,'#36426b',1,g)
   ring(180,260,52,'#36426b',1,g)
   const inset=wall+cornerRadius
-  for(const [y,color] of [[wall,game.craft[1].color],[H-wall,game.craft[0].color]]){
+  for(const [y,color] of [[wall,game.craft[game.craft.length-1].color],[H-wall,game.craft[0].color]]){
     stroke(inset,y,180-goal,y,'#7184ae',3,g);stroke(180+goal,y,W-inset,y,'#7184ae',3,g)
     g.shadowColor=color;g.shadowBlur=15
     stroke(180-goal,y,180+goal,y,color,5,g)
@@ -291,7 +293,7 @@ function draw(dt){
   ctx.drawImage(arenaBackdrop(field),0,0,W,H)
   const solo=game.mode==='practice'||game.mode==='circuit'
   const targets=[...game.craft,game.puck]
-  if(!pos)pos=targets.map(body=>({x:body.x,y:body.y}))
+  if(!pos||pos.length!==targets.length)pos=targets.map(body=>({x:body.x,y:body.y}))
   const predict=online.connection&&game.phase==='play'&&snapshotArrival?
     clamp((performance.now()-snapshotArrival)/1000,0,.10):0
   targets.forEach((body,index)=>{
@@ -316,10 +318,11 @@ function draw(dt){
     pos[index].x+=(x-pos[index].x)*blend
     pos[index].y+=(y-pos[index].y)*blend
   })
+  const puck=pos[game.craft.length]
   const ours=pos[online.seat], color=game.craft[online.seat].color
   if(!menu&&game.phase==='play'){
     ctx.setLineDash([3,6])
-    ring(ours.x,ours.y,range,distance(ours,pos[2])<=range?color+'70':color+'25')
+    ring(ours.x,ours.y,range,distance(ours,puck)<=range?color+'70':color+'25')
     ctx.setLineDash([])
   }
   for(const effect of game.effects){
@@ -329,13 +332,14 @@ function draw(dt){
   ctx.globalAlpha=1
   game.trail.forEach((point,i)=>{ctx.globalAlpha=i*.035;disc(point.x,point.y,3+i*.38,'#f9dc79')})
   ctx.globalAlpha=1
-  for(let seat=0;seat<(solo?1:2);seat++){
+  for(let seat=0;seat<(solo?1:game.craft.length);seat++){
     const ship=pos[seat], shipColor=game.craft[seat].color
-    const aim=Math.atan2(pos[2].y-ship.y,pos[2].x-ship.x)
+    const aim=Math.atan2(puck.y-ship.y,puck.x-ship.x)
+    if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
     drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim)
   }
-  disc(pos[2].x,pos[2].y,11,'#ffdb753a')
-  disc(pos[2].x,pos[2].y,8,'#ffe382')
+  disc(puck.x,puck.y,11,'#ffdb753a')
+  disc(puck.x,puck.y,8,'#ffe382')
   bursts=bursts.filter(particle=>{
     particle.life-=dt
     if(particle.life<=0)return false
@@ -633,10 +637,11 @@ function resetOnline(){
   online.matchId=null
   online.state=null
   online.ranked=false
+  online.war=false
   online.rematch=false
   online.errors=0
   $('field-picker').disabled=false
-  $('host').disabled=$('ranked').disabled=$('join-submit').disabled=false
+  $('host').disabled=$('ranked').disabled=$('warzone').disabled=$('join-submit').disabled=false
   $('copy').hidden=true
   write('room-code','')
   write('room-message','')
@@ -653,13 +658,14 @@ async function connect(action){
     setProfile(result.profile)
     clearPlayState()
     online.connection=result
-    online.ranked=action==='rank'
+    online.war=action==='warzone'
+    online.ranked=action==='rank'||online.war
     menu=false
     practicing=false
     $('field-picker').disabled=true
     write('room-code',result.code||'')
     $('copy').hidden=!result.code
-    write('room-message',result.code?'Share this code with your friend.':'Looking for an opponent?')
+    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teams…':'Looking for an opponent…')
     openMatchStream()
     await syncOnline(true)
   }catch(error){write('room-message',error.message)}
@@ -736,7 +742,7 @@ function applyOnlineState(state){
     if(online.rematch&&state.queued){
       online.matchId=null
       online.rematch=false
-      write('room-message','Looking for a rival?')
+      write('room-message',online.war?'Finding teams…':'Looking for a rival…')
     }
     return
   }
@@ -747,7 +753,7 @@ function applyOnlineState(state){
     online.rematch=false
     game=state.game
     $('field-picker').value=String(game.field)
-    write('room-message','You are '+(state.seat===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
+    write('room-message','You are '+(teamOf(game,state.seat)===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
     closeDialog('lobby-dialog')
   }else{
     if(game.phase!=='serve'&&state.game.phase==='serve'){pos=null;localPose=null}
@@ -757,7 +763,7 @@ function applyOnlineState(state){
   if(online.rematch&&state.queued){
     online.matchId=null
     online.rematch=false
-    write('room-message','Looking for a rival?')
+    write('room-message',online.war?'Finding teams…':'Looking for a rival…')
   }
 }
 async function syncOnline(urgent=false){
@@ -807,11 +813,12 @@ async function openLobby(){
   if(!username&&location.protocol!=='file:')await refreshProfile()
   write('selected-field',online.matchId?activeField(game).name:fields[currentField].name)
   if(profileError)write('room-message',profileError)
-  $('host').disabled=$('ranked').disabled=$('join-submit').disabled=activeMatch()
+  $('host').disabled=$('ranked').disabled=$('warzone').disabled=$('join-submit').disabled=activeMatch()
   showDialog('lobby-dialog')
 }
 $('lobby').addEventListener('click',openLobby)
 $('home-play').addEventListener('click',openLobby)
+$('home-war').addEventListener('click',async()=>{await openLobby();await connect('warzone')})
 $('home-practice').addEventListener('click',startPractice)
 $('home-after-match').addEventListener('click',async()=>{
   if(!practicing&&game.phase!=='over')return
@@ -822,6 +829,7 @@ $('home-after-match').addEventListener('click',async()=>{
 })
 $('host').addEventListener('click',()=>connect('host'))
 $('ranked').addEventListener('click',()=>connect('rank'))
+$('warzone').addEventListener('click',()=>connect('warzone'))
 $('join').addEventListener('submit',event=>{event.preventDefault();connect('join')})
 $('copy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText($('room-code').textContent);write('room-message','Room code copied.')}

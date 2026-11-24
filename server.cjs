@@ -11,7 +11,7 @@ const stake=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
-const {fields,botRivals,createGame,step,stepSeconds,clamp}=require('./engine.cjs')
+const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp}=require('./engine.cjs')
 const {createCheckout,checkoutEnabled,handleWebhook}=require('./payment.cjs')
 const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
@@ -27,12 +27,14 @@ for(const [key,account] of profiles)if(account.username)usernames.set(account.us
 const emails=new Map()
 for(const [key,account] of profiles)if(account.email)emails.set(account.email,key)
 const loginLimits=new Map()
-const sessions=new Map(), inviteRooms=new Map(), matches=new Map(), queued=new Map()
+const sessions=new Map(), inviteRooms=new Map(), matches=new Map(), queued=new Map(), warQueue=new Map()
 const identities=new Map(), addressLimits=new Map()
 const id=()=>randomBytes(24).toString('hex')
 const legalKey=value=>typeof value==='string'&&/^[a-f0-9]{48}$/.test(value)
 const expiration=12000
 const botWaitMs=4000
+const warWaitMs=6500
+const warLineup=[2,1,3,0,4]
 let lastTick=Date.now(), lastMaintenance=0, dirty=false
 
 function persist(){
@@ -194,14 +196,51 @@ function startMatch(players,field,kind,rival=null){
   const names=players.map(player=>profiles.get(player.profile).username)
   if(rival)names.push(rival.displayName)
   const match={id:id(),players,field,kind,names,skill,game,results:null,created:Date.now()}
+  registerMatch(match)
+}
+function registerMatch(match){
   matches.set(match.id,match)
-  for(const [seat,player] of players.entries()){
+  for(const [seat,player] of match.players.entries()){
+    if(!player)continue
     player.match=match
     player.seat=seat
     player.input=getInput(null)
     player.rematch=false
     queued.delete(player.token)
+    warQueue.delete(player.token)
   }
+}
+function playerSkill(player){
+  const account=profiles.get(player.profile)
+  return account.skill??account.rating
+}
+function warBot(skill){
+  const style=botRivals[randomInt(botRivals.length)]
+  return {difficulty:difficultyForSkill(skill),speed:style.speed,offset:style.offset}
+}
+function freeBotName(names){
+  let index=randomInt(opponentNames.length)
+  while(names.includes(opponentNames[index]))index=(index+1)%opponentNames.length
+  return opponentNames[index]
+}
+function startWarMatch(group){
+  const players=Array(warTeamSize*2).fill(null)
+  const counts=[0,0], totals=[0,0]
+  for(const player of group.slice().sort((a,b)=>playerSkill(b)-playerSkill(a))){
+    const team=counts[0]===counts[1]?(totals[0]<=totals[1]?0:1):counts[0]<counts[1]?0:1
+    players[team*warTeamSize+warLineup[counts[team]++]]=player
+    totals[team]+=playerSkill(player)
+  }
+  const skill=Math.round(group.reduce((sum,player)=>sum+playerSkill(player),0)/group.length)
+  const names=players.map(player=>player?profiles.get(player.profile).username:null)
+  const bots=players.map((player,seat)=>{
+    if(player)return null
+    names[seat]=freeBotName(names)
+    return warBot(skill)
+  })
+  const field=[3,4][randomInt(2)]
+  const game=createGame({mode:'warzone',field,bots})
+  registerMatch({id:id(),players,field,kind:'warzone',names,skill,game,results:null,created:Date.now()})
 }
 function finish(match,winner,reason){
   if(match.results)return
@@ -210,11 +249,16 @@ function finish(match,winner,reason){
   match.end=Date.now()
   match.results=match.players.map(()=>({reason,delta:0}))
   for(const [seat,player] of match.players.entries()){
+    if(!player)continue
     const account=profiles.get(player.profile)
     refreshCoins(account)
-    const coins=seat===winner?stake:-stake
+    const coins=teamOf(match.game,seat)===winner?stake:-stake
     account.coins+=coins
     Object.assign(match.results[seat],{coins,balance:account.coins})
+    if(match.kind==='warzone'&&reason==='completed'){
+      const team=teamOf(match.game,seat)
+      account.skill=fallbackSkill(playerSkill(player),team===winner,match.game.score[team]-match.game.score[1-team])
+    }
   }
   dirty=true
   if(reason==='completed'&&match.kind==='fallback'){
@@ -238,11 +282,24 @@ function scrub(player){
   if(identities.get(player.profile)===player)identities.delete(player.profile)
   if(player.code&&inviteRooms.get(player.code)===player)inviteRooms.delete(player.code)
   queued.delete(player.token)
+  warQueue.delete(player.token)
   sessions.delete(player.token)
 }
 function remove(player){
-  if(player.match&&!player.match.results){
-    finish(player.match,1-player.seat,'forfeit')
+  const match=player.match
+  if(match&&!match.results){
+    if(match.kind==='warzone'){
+      const account=profiles.get(player.profile)
+      refreshCoins(account)
+      account.coins-=stake
+      dirty=true
+      const seat=player.seat
+      match.players[seat]=null
+      match.names[seat]=freeBotName(match.names)
+      match.game.bots[seat]=warBot(match.skill)
+      match.game.botThink[seat]=0
+      if(!match.players.some(Boolean))matches.delete(match.id)
+    }else finish(match,1-player.seat,'forfeit')
   }
   scrub(player)
 }
@@ -282,6 +339,22 @@ function findPairs(now){
     startMatch([player],randomInt(fields.length),'fallback',{...rival,displayName})
   }
 }
+function findWarMatches(now){
+  const maximum=warTeamSize*2
+  for(const [token,anchor] of warQueue){
+    if(!warQueue.has(token))continue
+    const skill=playerSkill(anchor)
+    const radius=player=>100+Math.floor((now-player.queuedAt)/1250)*35
+    const compatible=[...warQueue.values()].filter(player=>{
+      const difference=Math.abs(playerSkill(player)-skill)
+      return difference<=Math.min(radius(anchor),radius(player))
+    })
+    compatible.sort((a,b)=>Math.abs(playerSkill(a)-skill)-Math.abs(playerSkill(b)-skill)||a.queuedAt-b.queuedAt)
+    if(compatible.length<maximum&&now-anchor.queuedAt<warWaitMs)continue
+    const group=[anchor,...compatible.filter(player=>player!==anchor)].slice(0,maximum)
+    startWarMatch(group)
+  }
+}
 function tick(){
   const now=Date.now()
   let steps=Math.floor((now-lastTick)/(stepSeconds*1000))
@@ -290,7 +363,7 @@ function tick(){
   steps=Math.min(6,steps)
   for(const match of matches.values()){
     if(match.results)continue
-    const inputs=match.players.map(player=>player.input)
+    const inputs=match.players.map(player=>player?.input)
     for(let index=0;index<steps;index++)step(match.game,inputs)
     if(match.game.phase==='over')finish(match,match.game.winner,'completed')
   }
@@ -299,19 +372,20 @@ function tick(){
   for(const player of sessions.values())if(now-player.seen>expiration)remove(player)
   for(const [key,match] of matches){
     if(match.end&&now-match.end>300000){
-      for(const player of match.players)if(player.match===match)scrub(player)
+      for(const player of match.players)if(player?.match===match)scrub(player)
       matches.delete(key)
     }
   }
   for(const [ip,value] of addressLimits)if(now-value.start>5000)addressLimits.delete(ip)
   for(const [ip,value] of loginLimits)if(now-value.start>60000)loginLimits.delete(ip)
   findPairs(now)
+  findWarMatches(now)
   if(dirty){try{persist()}catch(error){console.error('Could not save profiles:',error.message)}}
 }
 setInterval(tick,12).unref()
 
 function roomAction(data){
-  if(['host','join','rank'].includes(data.action)){
+  if(['host','join','rank','warzone'].includes(data.action)){
     if(data.action==='join'){
       const owner=inviteRooms.get(data.code)
       if(!owner||owner.match)throw new Error('Room unavailable. Ask your friend for a new code.')
@@ -322,9 +396,10 @@ function roomAction(data){
     }
     const profile=identity(data.profile)
     const player=makeSession(profile)
-    if(data.action==='rank'){
+    if(data.action==='rank'||data.action==='warzone'){
       player.queuedAt=Date.now()
-      queued.set(player.token,player)
+      const queue=data.action==='warzone'?warQueue:queued
+      queue.set(player.token,player)
       return {profile,token:player.token}
     }
     player.field=Number.isInteger(data.field)&&fields[data.field]?data.field:0
@@ -343,15 +418,16 @@ function roomAction(data){
   const style=(value,earned)=>paid(value)||(value===earned&&account.gear?.includes(value))?value:'classic'
   player.look={ship:style(data.look?.ship,'ice'),goal:style(data.look?.goal,'comet')}
   const match=player.match
-  if(!match)return {queued:queued.has(player.token)}
+  if(!match)return {queued:queued.has(player.token)||warQueue.has(player.token)}
   let notice
   if(data.rematch&&match.results&&!canEnter(player.profile)){
     notice='You need 30 Arena Coins. Try free practice while your coins refill.'
   }else if(data.rematch&&match.results){
-    if(match.kind==='ranked'||match.kind==='fallback'){
+    if(['ranked','fallback','warzone'].includes(match.kind)){
       player.match=null
       player.queuedAt=Date.now()
-      queued.set(player.token,player)
+      const queue=match.kind==='warzone'?warQueue:queued
+      queue.set(player.token,player)
       return {queued:true}
     }
     player.rematch=true
@@ -368,8 +444,8 @@ function roomAction(data){
   }
   const current=player.match
   const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event}=current.game
-  return {game:{mode:'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event},
-    notice,names:current.names,looks:current.players.map(participant=>participant.look),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
+  return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event},
+    notice,names:current.names,looks:current.players.map(participant=>participant?.look),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(body))
@@ -398,7 +474,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arcade-ui-auto-guest',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'war-zone-5v5',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/checkout','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

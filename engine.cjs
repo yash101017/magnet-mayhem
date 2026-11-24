@@ -30,6 +30,9 @@ const botRivals = [
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value))
 const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y)
 const shipColors = ['#67f7ff','#ff72b3']
+const warTeamSize=5
+const warSpawns=[[72,431],[95,353],[180,338],[265,353],[288,431]]
+function teamOf(game,seat){return game.mode==='warzone'?Math.floor(seat/warTeamSize):seat}
 const still = { vx:0, vy:0 }
 const neutralInput = Object.freeze({dx:0,dy:0})
 
@@ -95,16 +98,25 @@ function resetRound(game) {
   game.serve = game.mode === 'practice' || game.mode === 'circuit' ? 0 : .8
   if (game.serve) game.phase = 'serve'
   else game.phase = 'play'
-  Object.assign(game.craft[0], still, {x:180,y:410,cd:0})
-  Object.assign(game.craft[1], still, {x:180,y:110,cd:0})
+  if(game.mode==='warzone'){
+    game.craft.forEach((craft,seat)=>{
+      const [x,y]=warSpawns[seat%warTeamSize]
+      Object.assign(craft,still,{x:teamOf(game,seat)===0?x:W-x,y:teamOf(game,seat)===0?y:H-y,cd:0})
+    })
+    game.botThink=game.craft.map((_,seat)=>.18+seat*.045)
+  }else{
+    Object.assign(game.craft[0], still, {x:180,y:410,cd:0})
+    Object.assign(game.craft[1], still, {x:180,y:110,cd:0})
+  }
   Object.assign(game.puck,still,{x:180,y:260})
 }
 
-function createGame({mode='bot', field=0, difficulty='easy', rival=null} = {}) {
+function createGame({mode='bot', field=0, difficulty='easy', rival=null, bots=null} = {}) {
   const game = {
-    mode,rival,field:fields[field]?field:0,difficulty:Object.hasOwn(difficulties,difficulty)?difficulty:'easy',
+    mode,rival,bots,field:fields[field]?field:0,difficulty:Object.hasOwn(difficulties,difficulty)?difficulty:'easy',
     phase:'play',score:[0,0],stage:0,elapsed:0,serial:0,clock:90,delay:0,winner:null,extra:false,
-    craft:shipColors.map(color=>({color})), puck:{}, lastShot:[0,0], status:'', event:{id:0}
+    craft:(mode==='warzone'?shipColors.flatMap(color=>Array(warTeamSize).fill(color)):shipColors).map(color=>({color})),
+    puck:{}, lastShot:Array(mode==='warzone'?warTeamSize*2:2).fill(0), status:'', event:{id:0}
   }
   resetRound(game)
   return game
@@ -144,7 +156,7 @@ function magnet(game,seat,push) {
   if(game.phase!=='play'||craft.cd>0)return false
   const d=distance(craft,puck)
   if(d>range||d<1){event(game,'miss',seat);return false}
-  const ai=game.mode==='bot'&&seat===1?difficulties[game.difficulty]:null
+  const ai=game.mode==='warzone'&&game.bots?.[seat]?difficulties[game.bots[seat].difficulty]:game.mode==='bot'&&seat===1?difficulties[game.difficulty]:null
   const force=push?(ai?.shotPower??570):-Math.min(330,d*5)
   puck.vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
   puck.vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
@@ -338,6 +350,65 @@ function runAI(game,dt) {
   }
 }
 
+function pathToPuck(game,ship,x,y){
+  for(const bumper of activeField(game).bumpers){
+    const dx=x-ship.x,dy=y-ship.y
+    const t=clamp(((bumper.x-ship.x)*dx+(bumper.y-ship.y)*dy)/Math.max(1,dx*dx+dy*dy),0,1)
+    if(t<=0||Math.hypot(ship.x+dx*t-bumper.x,ship.y+dy*t-bumper.y)>bumper.r+17)continue
+    const angle=Math.atan2(ship.y-bumper.y,ship.x-bumper.x)
+    const radius=bumper.r+25
+    const route=[-1,1].map(side=>({x:bumper.x+Math.cos(angle+side*.52)*radius,y:bumper.y+Math.sin(angle+side*.52)*radius}))
+    return distance(route[0],{x,y})<distance(route[1],{x,y})?route[0]:route[1]
+  }
+  return {x,y}
+}
+function runWarTeam(game,team,inputs,dt){
+  const first=team*warTeamSize
+  const end=first+warTeamSize
+  const puck=game.puck
+  const direction=team===0?-1:1
+  const attackGoal=team===0?wall:H-wall
+  const attackOrder=game.craft.slice(first,end).map((craft,index)=>({
+    seat:first+index,distance:distance(craft,puck)
+  })).sort((a,b)=>a.distance-b.distance)
+  const firstBot=attackOrder.find(entry=>game.bots?.[entry.seat])?.seat
+  const secondBot=attackOrder.find(entry=>entry.seat!==firstBot&&game.bots?.[entry.seat])?.seat
+  for(let seat=first;seat<end;seat++){
+    const config=game.bots?.[seat]
+    if(!config){applyInput(game,seat,inputs[seat]||neutralInput,dt);continue}
+    const ship=game.craft[seat], ai=difficulties[config.difficulty]
+    const [lane]=warSpawns[seat-first]
+    const chase=seat===firstBot
+    const support=seat===secondBot
+    const space=42+config.offset*.22
+    const dx=W/2-puck.x,dy=attackGoal-puck.y
+    const length=Math.max(1,Math.hypot(dx,dy))
+    const touch=distance(ship,puck)
+    let x,y
+    if(chase){
+      const corner=(puck.x<65||puck.x>W-65)&&(puck.y<65||puck.y>H-65)
+      x=corner?puck.x+(W/2-puck.x)*.35:puck.x-dx/length*space
+      y=corner?puck.y+(H/2-puck.y)*.27:puck.y-dy/length*space
+      if(!corner&&touch>80){x=puck.x;y=puck.y-direction*24}
+    }else if(support){
+      x=puck.x+(ship.x<puck.x?-65:65)
+      y=puck.y-direction*36
+    }else{
+      x=lane*.66+puck.x*.34+Math.sin(game.elapsed*2+seat)*12
+      y=puck.y-direction*(72+(seat-first)%3*25)
+      y=team===0?clamp(y,145,H-40):clamp(y,40,H-145)
+    }
+    const target=pathToPuck(game,ship,clamp(x,31,W-31),clamp(y,32,H-32))
+    steer(ship,target.x,target.y,ai.speed+config.speed,dt)
+    game.botThink[seat]-=dt
+    if(game.botThink[seat]>0||ship.cd>0||(!chase&&!support))continue
+    game.botThink[seat]=ai.reaction+.08
+    const ahead=(puck.y-ship.y)*direction
+    if(touch<=range&&ahead>16&&Math.abs(puck.x-ship.x)<ahead*1.25)magnet(game,seat,true)
+    else if(chase&&touch>47&&touch<range&&Math.hypot(puck.vx,puck.vy)<70)magnet(game,seat,false)
+  }
+}
+
 function steerPlayer(craft,input,dt) {
   const targeted=Number.isFinite(input.x)&&Number.isFinite(input.y)
   const tilt=Math.min(1,Math.hypot(input.dx,input.dy))
@@ -382,13 +453,19 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
       return
     }
   }
-  applyInput(game,0,inputs[0]||neutralInput,dt)
-  if(game.mode==='bot') runAI(game,dt)
-  else if(!solo)applyInput(game,1,inputs[1]||neutralInput,dt)
+  if(game.mode==='warzone'){
+    runWarTeam(game,0,inputs,dt)
+    runWarTeam(game,1,inputs,dt)
+  }else{
+    applyInput(game,0,inputs[0]||neutralInput,dt)
+    if(game.mode==='bot')runAI(game,dt)
+    else if(!solo)applyInput(game,1,inputs[1]||neutralInput,dt)
+  }
   const craft=solo?[game.craft[0]]:game.craft
   const puck=game.puck, bumpers=activeField(game).bumpers
   for(let pass=0;pass<3;pass++){
-    if(!solo)separate(craft[0],craft[1],28,.5,.5,.25)
+    for(let first=0;first<craft.length-1;first++)for(let second=first+1;second<craft.length;second++)
+      separate(craft[first],craft[second],28,.5,.5,.25)
     for(const body of craft){
       for(const bumper of bumpers) separate(body,bumper,14+bumper.r,1,0,.15)
       setInside(body,15)
@@ -418,7 +495,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,step,steerPlayer,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 
