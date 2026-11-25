@@ -17,6 +17,7 @@ const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
 
 const page=fs.readFileSync(path.join(__dirname,'index.html'))
+const shipArt=fs.readFileSync(path.join(__dirname,'ship-art.webp'))
 const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json')
 const profiles=new Map()
 try{
@@ -484,7 +485,11 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arena-shop-coin-catalog',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/ship-art.webp'){
+    res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(shipArt)
+    return
+  }
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'rotating-ship-art',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

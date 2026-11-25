@@ -233,43 +233,35 @@ function ring(x,y,r,color,width=1,g=ctx){
 function disc(x,y,r,color,g=ctx){
   g.fillStyle=color;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()
 }
-function drawShip(g,x,y,color,style,aim=0,scale=1){
+const shipArtSlots=new Map(catalog.filter(item=>item.type==='ship'&&!item.retired)
+  .map((item,index)=>[item.id,index]))
+shipArtSlots.set('ship-9',10)
+shipArtSlots.set('prism',16)
+shipArtSlots.set('gold',18)
+const shipArt=typeof Image==='function'?new Image():null
+if(shipArt){
+  shipArt.addEventListener('load',()=>updateShop())
+  shipArt.src='ship-art.webp'
+}
+function drawShip(g,x,y,color,style,rotation=0,scale=1){
   g.save()
   g.translate(x,y)
-  g.rotate(aim)
   g.scale(scale,scale)
-  g.fillStyle=color;g.beginPath();g.arc(0,0,14,0,Math.PI*2);g.fill()
-  g.fillStyle='#111831';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill()
-  const design=catalog.find(item=>item.type==='ship'&&item.id===style)
-  if(design?.design>0){
-    const wings=design.design%5
-    const fin=3+Math.floor(design.design/5)*1.4
-    g.fillStyle=design.accent
-    g.beginPath()
-    g.moveTo(10,0);g.lineTo(-4+wings,-fin);g.lineTo(-11,-fin-wings*.7)
-    g.lineTo(-7+wings*.6,0);g.lineTo(-11,fin+wings*.7);g.lineTo(-4+wings,fin)
-    g.closePath();g.fill()
-    g.fillStyle='#111831';g.fillRect(-5,-1,9,2)
+  g.fillStyle='#071725'
+  g.beginPath();g.arc(0,0,14,0,Math.PI*2);g.fill()
+  if(shipArt?.naturalWidth){
+    const index=shipArtSlots.get(style)??0
+    g.save()
+    g.rotate(rotation)
+    g.drawImage(shipArt,index%5*120,Math.floor(index/5)*120,120,120,-13,-13,26,26)
     g.restore()
-    return
   }
-  g.strokeStyle=style==='prism'?'#d3a5ff':style==='gold'?'#ffd182':style==='ice'?'#8ef0ff':color
-  g.lineWidth=2.2
-  g.beginPath()
-  if(style==='prism'){
-    g.moveTo(9,0);g.lineTo(0,-6);g.lineTo(-8,0);g.lineTo(0,6);g.closePath()
-  }else if(style==='ice'){
-    g.moveTo(-8,0);g.lineTo(0,-7);g.lineTo(9,0);g.lineTo(0,7);g.closePath()
-    g.moveTo(-4,0);g.lineTo(5,0)
-  }else if(style==='gold'){
-    g.moveTo(-6,-6);g.lineTo(3,0);g.lineTo(-6,6)
-    g.moveTo(-1,-6);g.lineTo(8,0);g.lineTo(-1,6)
-  }else{
-    g.moveTo(0,0);g.lineTo(12,0)
-  }
-  g.stroke()
+  g.strokeStyle=color
+  g.lineWidth=1.8
+  g.beginPath();g.arc(0,0,13.4,0,Math.PI*2);g.stroke()
   g.restore()
 }
+
 function arenaBackdrop(field){
   if(backdrop&&backdropKey===field.name)return backdrop
   backdrop??=document.createElement('canvas')
@@ -356,9 +348,9 @@ function draw(dt){
   ctx.globalAlpha=1
   for(let seat=0;seat<(solo?1:game.craft.length);seat++){
     const ship=pos[seat], shipColor=game.craft[seat].color
-    const aim=Math.atan2(puck.y-ship.y,puck.x-ship.x)
+    const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
-    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),aim)
+    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),rotation)
   }
   disc(puck.x,puck.y,11,'#ffdb753a')
   disc(puck.x,puck.y,8,'#ffe382')
@@ -895,7 +887,7 @@ function updateShop(){
       name.textContent=item.name
       const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
       detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
-      if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,-.34,2.1)
+      if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,0,2.35)
       else drawEffect(g,item.id,70,39,.35)
     }
     button.append(art,name,detail)
@@ -935,7 +927,7 @@ function updateShop(){
   }else{
     g.clearRect(0,0,320,84)
     if(exchange){g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()}
-    else drawShip(g,160,42,item.accent,item.id,-.25,2.25)
+    else drawShip(g,160,42,item.accent,item.id,0,2.65)
   }
 }
 function drawEffect(g,style,x,y,age){
