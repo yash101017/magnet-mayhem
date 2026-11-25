@@ -9,10 +9,11 @@ let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSe
 let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
 const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
-let practicing=false,practiceBank=0,practiceShip=null
+let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null
 let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
+let goalArt=null
 let backdrop=null, backdropKey=null, localPose=null
 let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
 let pingMs=null, pingUpdated=0, lastPing=0, pingSerial=0, pingProbe=null
@@ -59,10 +60,12 @@ function clearPlayState(){
   localPose=null
   snapshotArrival=0
   cachedStatus=''
+  goalArt=null
 }
 function setMenu(){
   practicing=false
   practiceShip=null
+  practiceEffect=null
   practiceBank=0
   clearPlayState()
   menu=true
@@ -70,10 +73,11 @@ function setMenu(){
   cachedStatus='First to 3'
   renderHud()
 }
-function startPractice(style=shipStyle){
+function startPractice(style=shipStyle,effect=cosmetic){
   clearPlayState()
   practicing=true
   practiceShip=style
+  practiceEffect=effect
   practiceBank=0
   menu=false
   game=createGame({mode:'bot',difficulty:'training',field:currentField})
@@ -81,7 +85,7 @@ function startPractice(style=shipStyle){
   renderHud()
 }
 function goReplay(){
-  if(practicing){startPractice(practiceShip);return}
+  if(practicing){startPractice(practiceShip,practiceEffect);return}
   if(menu){openLobby();return}
   if(online.connection){
     online.rematch=true
@@ -120,6 +124,7 @@ function effectParticles(theme){
   })
 }
 function celebrate(x,y,theme){
+  goalArt={x,y,theme,age:0}
   bursts.push(...effectParticles(theme).map(particle=>({...particle,x,y})))
 }
 function renderEvent(){
@@ -129,7 +134,7 @@ function renderEvent(){
   previousEvent=key
   const ours=event.seat===(event.kind==='goal'?teamOf(game,online.seat):online.seat)
   if(event.kind==='goal'){
-    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.scorer??(game.mode==='warzone'?-1:event.seat)]?.goal||(!online.connection&&ours?cosmetic:'classic'))
+    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.scorer??(game.mode==='warzone'?-1:event.seat)]?.goal||(!online.connection&&ours?(practiceEffect||cosmetic):'classic'))
     beep(ours?660:175,.36,'triangle')
     cachedStatus=ours?'Goal!':'Opponent scores'
   }
@@ -246,6 +251,25 @@ if(shipArt){
   shipArt.addEventListener('load',()=>updateShop())
   shipArt.src='ship-art.webp'
 }
+const effectArtSlots=new Map(catalog.filter(item=>item.type==='effect'&&!item.retired)
+  .map((item,index)=>[item.id,index]))
+effectArtSlots.set('effect-9',9)
+effectArtSlots.set('prism',11)
+effectArtSlots.set('gold',19)
+const effectArt=typeof Image==='function'?new Image():null
+if(effectArt){
+  effectArt.addEventListener('load',()=>updateShop())
+  effectArt.src='effect-art.webp'
+}
+function drawEffectArt(g,style,x,y,size,age){
+  if(!effectArt?.naturalWidth)return
+  const slot=effectArtSlots.get(style)??0
+  const width=size*(.35+.65*Math.min(1,age*3.5))
+  g.save()
+  g.globalAlpha=Math.max(0,Math.min(1,age*12,(1-age)*4))
+  g.drawImage(effectArt,slot%5*144,Math.floor(slot/5)*144,144,144,x-width/2,y-width/2,width,width)
+  g.restore()
+}
 function drawShip(g,x,y,color,style,rotation=0,scale=1){
   g.save()
   g.translate(x,y)
@@ -357,6 +381,11 @@ function draw(dt){
   }
   disc(puck.x,puck.y,11,'#ffdb753a')
   disc(puck.x,puck.y,8,'#ffe382')
+  if(goalArt){
+    goalArt.age+=dt
+    drawEffectArt(ctx,goalArt.theme,goalArt.x,clamp(goalArt.y,58,H-58),126,goalArt.age)
+    if(goalArt.age>=1)goalArt=null
+  }
   bursts=bursts.filter(particle=>{
     particle.life-=dt
     if(particle.life<=0)return false
@@ -872,7 +901,7 @@ function updateShop(){
   const entries=shopPage==='diamonds'?diamondPacks:
     [...catalog,...(ownsPack?legacyGear:[])].filter(item=>item.type===shopPage&&(!item.retired||itemOwned(item)))
   for(const item of entries){
-    if(item.type==='ship'){list.append(shipCard(item,run));continue}
+    if(item.type){list.append(gearCard(item,run));continue}
     const button=document.createElement('button')
     button.className='market-item'
     button.type='button'
@@ -885,16 +914,9 @@ function updateShop(){
     const g=art.getContext('2d')
     const name=document.createElement('strong')
     const detail=document.createElement('small')
-    if(shopPage==='diamonds'){
-      name.textContent=item.amount+' diamonds'
-      detail.textContent=item.price+' coins'
-      drawDiamond(g,item.amount)
-    }else{
-      name.textContent=item.name
-      const equipped=item.id===cosmetic
-      detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
-      drawEffect(g,item.id,70,39,.35)
-    }
+    name.textContent=item.amount+' diamonds'
+    detail.textContent=item.price+' coins'
+    drawDiamond(g,item.amount)
     button.append(art,name,detail)
     button.addEventListener('click',()=>{
       selectedPreview=item
@@ -906,36 +928,21 @@ function updateShop(){
     list.append(button)
   }
   const item=selectedPreview
-  $('shop-preview').hidden=shopPage==='ship'||!item
+  $('shop-preview').hidden=shopPage!=='diamonds'||!item
   if($('shop-preview').hidden)return
-  const exchange=shopPage==='diamonds'
-  const owned=!exchange&&itemOwned(item)
-  const equipped=owned&&item.id===(item.type==='ship'?shipStyle:cosmetic)
-  const currency=item.currency||'coins'
-  write('preview-name',exchange?'Exchange for '+item.amount+' diamonds':item.name)
-  write('preview-stats',exchange?'Add diamonds to your wallet.':'Plays after a goal.')
-  write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' Â· '+item.price+' '+currency)
-  $('shop-action').disabled=shopBusy||equipped||!owned&&(!username||(currency==='coins'?coins:diamonds)<item.price)
+  write('preview-name','Exchange for '+item.amount+' diamonds')
+  write('preview-stats','Add diamonds to your wallet.')
+  write('shop-action','Exchange · '+item.price+' coins')
+  $('shop-action').disabled=shopBusy||!username||coins<item.price
   const g=$('preview').getContext('2d')
-  if(item.type==='effect'){
-    const start=performance.now()
-    function animate(now){
-      if(run!==previewRun||!$('shop-dialog').open)return
-      const age=Math.min(.72,(now-start)/1000)
-      g.clearRect(0,0,320,84)
-      drawEffect(g,item.id,160,42,age)
-      if(age<.72)requestAnimationFrame(animate)
-    }
-    requestAnimationFrame(animate)
-  }else{
-    g.clearRect(0,0,320,84)
-    g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()
-  }
+  g.clearRect(0,0,320,84)
+  g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()
 }
-function shipCard(item,run){
+function gearCard(item,run){
+  const ship=item.type==='ship'
   const active=selectedPreview?.id===item.id
   const owned=itemOwned(item)
-  const equipped=shipStyle===item.id
+  const equipped=(ship?shipStyle:cosmetic)===item.id
   const card=document.createElement('div')
   card.className='market-item market-ship-card'
   card.dataset.selected=String(active)
@@ -951,14 +958,15 @@ function shipCard(item,run){
   const g=art.getContext('2d')
   function paint(angle){
     g.clearRect(0,0,240,240)
-    drawShip(g,120,120,item.accent,item.id,angle,7.8)
+    if(ship)drawShip(g,120,120,item.accent,item.id,angle,7.8)
+    else drawEffectArt(g,item.id,120,120,228,angle)
   }
-  paint(0)
+  paint(ship?0:.46)
   if(active){
     const start=performance.now()
     function spin(now){
       if(run!==previewRun||!$('shop-dialog').open)return
-      paint((now-start)*.0017)
+      paint(ship?(now-start)*.0017:((now-start)%1350)/1000)
       requestAnimationFrame(spin)
     }
     requestAnimationFrame(spin)
@@ -969,7 +977,7 @@ function shipCard(item,run){
   detail.textContent=equipped?'Equipped':owned?'Owned':item.price+' coins'
   const stats=document.createElement('small')
   const {range,push,pull}=shipMagnet(item.id)
-  stats.textContent='Range '+range+' · Push '+push+' · Pull '+pull
+  stats.textContent=ship?'Range '+range+' · Push '+push+' · Pull '+pull:'Goal celebration'
   select.append(art,name,detail,stats)
   const action=document.createElement('button')
   action.type='button'
@@ -996,11 +1004,11 @@ function shipCard(item,run){
   trial.textContent='Try it in practice match'
   trial.setAttribute('aria-label','Try '+item.name+' in a practice match')
   trial.disabled=shopBusy||Boolean(online.connection&&(!online.matchId||activeMatch()))
-  trial.addEventListener('click',()=>tryShip(item.id))
+  trial.addEventListener('click',()=>tryGear(item))
   card.append(select,trial,action)
   return card
 }
-function tryShip(style){
+function tryGear(item){
   if(online.connection&&(!online.matchId||activeMatch()))return
   closeDialog('shop-dialog')
   if(online.connection){
@@ -1008,11 +1016,11 @@ function tryShip(style){
     resetOnline()
     api('/room',{action:'leave',token}).catch(()=>{})
   }
-  startPractice(style)
+  startPractice(item.type==='ship'?item.id:shipStyle,item.type==='effect'?item.id:cosmetic)
 }
 let exchangeOffer=null
 function offerCoins(item){
-  if(!username){write('shop-message','Connect to your player profile to buy ships.');return}
+  if(!username){write('shop-message','Connect to your player profile to buy gear.');return}
   const packs=Math.ceil((item.price-coins)/coinExchange.coins)
   const cost=packs*coinExchange.diamonds
   const amount=packs*coinExchange.coins
@@ -1043,7 +1051,7 @@ $('coin-offer-yes').addEventListener('click',async()=>{
   try{
     applyProfile(await api('/redeem',{profile,gear:'exchange-coins',packs}))
     closeDialog('coin-offer')
-    write('shop-message',packs*coinExchange.coins+' coins added. Click Buy to purchase the ship.')
+    write('shop-message',packs*coinExchange.coins+' coins added. Click Buy to complete your purchase.')
   }catch(error){
     write('coin-offer-status',error.message)
     $('coin-offer-yes').disabled=false
@@ -1053,16 +1061,6 @@ $('coin-offer-yes').addEventListener('click',async()=>{
     updateShop()
   }
 })
-function drawEffect(g,style,x,y,age){
-  for(const particle of effectParticles(style)){
-    g.fillStyle=particle.color
-    g.globalAlpha=Math.max(.08,1-age/particle.life)
-    g.beginPath()
-    g.arc(x+particle.vx*age,y+particle.vy*age*.7,particle.radius,0,Math.PI*2)
-    g.fill()
-  }
-  g.globalAlpha=1
-}
 function drawDiamond(g,amount){
   g.fillStyle=amount>30?'#d7aaff':'#91f0ff'
   g.beginPath()
@@ -1099,7 +1097,7 @@ async function shopAction(item){
     updateShop()
     return
   }
-  if(item.type==='ship'&&(!username||coins<item.price)){offerCoins(item);return}
+  if(item.type&&(!username||coins<item.price)){offerCoins(item);return}
   shopBusy=true
   updateShop()
   try{

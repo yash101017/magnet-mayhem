@@ -18,6 +18,7 @@ let streamAvailable=false
 
 const page=fs.readFileSync(path.join(__dirname,'index.html'))
 const shipArt=fs.readFileSync(path.join(__dirname,'ship-art.webp'))
+const effectArt=fs.readFileSync(path.join(__dirname,'effect-art.webp'))
 const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json')
 const profiles=new Map()
 try{
@@ -494,11 +495,11 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/ship-art.webp'){
-    res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(shipArt)
+  if(req.method==='GET'&&(route==='/ship-art.webp'||route==='/effect-art.webp')){
+    res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'diamond-pack-preview',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'animated-effect-shop',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

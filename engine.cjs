@@ -20,7 +20,7 @@ const catalog=[
   })),
   ...effectNames.map((name,i)=>({
     id:i===0?'comet':'effect-'+i,name,type:'effect',design:i,accent:accents[(i+3)%accents.length],
-    currency:'coins',price:i<2?0:110+i*53,retired:i===9
+    currency:'coins',price:50*(i<9?i+1:i),retired:i===9
   }))
 ]
 const coinExchange={diamonds:10,coins:150,maxPacks:7}
