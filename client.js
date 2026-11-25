@@ -6,7 +6,7 @@ const held=new Set()
 const online={connection:null,seat:0,busy:false,errors:0,rematch:false}
 const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ffe676','#68ffd9','#79b8ff','#e78aff'],gold:['#fff1b0','#ffb84c','#fb8233'],comet:['#efffff','#7aeeff','#7296ff']}
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
-let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
+let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null
@@ -25,6 +25,18 @@ function saved(key,value){
   }catch{return null}
 }
 profile=saved('profile')
+let soundEnabled=true
+function updateSoundControl(){
+  write('sound',soundEnabled?'Sound off':'Sound on')
+  $('sound').setAttribute('aria-pressed',String(!soundEnabled))
+}
+updateSoundControl()
+$('sound').addEventListener('click',()=>{
+  soundEnabled=!soundEnabled
+  updateSoundControl()
+  if(soundEnabled)unlockSound()
+  else stopMatchMusic()
+})
 let buttonSide=saved('button-side')==='right'?'right':'left'
 function updateButtonSide(){
   $('match-stage').dataset.side=buttonSide
@@ -74,6 +86,7 @@ function setMenu(){
   renderHud()
 }
 function startPractice(style=shipStyle,effect=cosmetic){
+  unlockSound()
   clearPlayState()
   practicing=true
   practiceShip=style
@@ -104,8 +117,72 @@ function closeDialog(id){
   if(dialog.open)dialog.close()
 }
 const anyDialog=()=>[...document.querySelectorAll('dialog')].some(dialog=>dialog.open)
+function unlockSound(){
+  if(!soundEnabled)return
+  try{
+    const Audio=window.AudioContext||window.webkitAudioContext
+    if(!Audio)return
+    audio??=new Audio()
+    if(audio.state==='suspended')audio.resume().catch(()=>{})
+  }catch{}
+}
+
+// Original four-bar synth loop. All voices are synthesized in the browser.
+const arcadeScore=[
+  {root:38,chord:[62,65,69],riff:[74,0,77,81,0,77,72,0]},
+  {root:34,chord:[58,62,65],riff:[70,0,74,77,0,74,69,0]},
+  {root:41,chord:[60,65,69],riff:[72,0,77,81,0,84,77,0]},
+  {root:36,chord:[60,64,67],riff:[76,0,79,0,72,76,71,0]}
+]
+const beatStep=60/126/4
+let music=null
+function stopMatchMusic(){
+  if(!music)return
+  music.output.disconnect()
+  music=null
+}
+function musicVoice(time,duration,hz,level,type,endHz=hz){
+  const voice=audio.createOscillator(), envelope=audio.createGain()
+  voice.type=type
+  voice.frequency.setValueAtTime(hz,time)
+  voice.frequency.exponentialRampToValueAtTime(endHz,time+duration)
+  envelope.gain.setValueAtTime(.0001,time)
+  envelope.gain.exponentialRampToValueAtTime(level,time+.009)
+  envelope.gain.exponentialRampToValueAtTime(.0001,time+duration)
+  voice.connect(envelope).connect(music.output)
+  voice.start(time)
+  voice.stop(time+duration)
+}
+function syncMatchMusic(){
+  const live=soundEnabled&&audio?.state==='running'&&!menu&&!document.hidden&&
+    (practicing||Boolean(online.matchId))&&game.phase!=='over'
+  if(!live){stopMatchMusic();return}
+  if(!music){
+    const output=audio.createGain()
+    output.gain.value=.18
+    output.connect(audio.destination)
+    music={output,next:audio.currentTime+.025,step:0}
+  }
+  const now=audio.currentTime
+  if(music.next<now)music.next=now+.015
+  const hz=note=>440*2**((note-69)/12)
+  while(music.next<now+.12){
+    const step=music.step%16
+    const bar=arcadeScore[Math.floor(music.step/16)%arcadeScore.length]
+    const time=music.next
+    if(step%4===0)musicVoice(time,.105,105,.42,'sine',42)
+    if(step%2===1)musicVoice(time,.04,5800,.036,'triangle',3600)
+    if(step%4===2||step===15)musicVoice(time,.14,hz(bar.root+(step===15?12:0)),.16,'triangle')
+    if(step===0||step===8)bar.chord.forEach((note,i)=>musicVoice(time+i*.016,.31,hz(note),.055,'triangle'))
+    const lead=step%2===0?bar.riff[step/2]:0
+    if(lead)musicVoice(time,.19,hz(lead),.074,'sine')
+    music.next+=beatStep
+    music.step++
+  }
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMatchMusic()})
 function beep(freq,duration,type='sine'){
-  if(!sound||!audio||audio.state!=='running')return
+  if(!soundEnabled||!audio||audio.state!=='running')return
   const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime
   osc.type=type;osc.frequency.value=freq
   gain.gain.setValueAtTime(.08,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
@@ -421,6 +498,7 @@ function frame(now){
     nextRefillCheck=now+4000
     refreshProfile()
   }
+  syncMatchMusic()
   renderEvent()
   if(!menu)draw(dt)
   if(now-lastHud>=70){lastHud=now;renderHud()}
@@ -513,15 +591,7 @@ $('control-side').addEventListener('click',()=>{
   updateButtonSide()
 })
 updateButtonSide()
-$('sound').addEventListener('click',async()=>{
-  sound=!sound
-  if(sound){
-    try{audio??=new (window.AudioContext||window.webkitAudioContext)();await audio.resume();beep(440,.1)}
-    catch{sound=false}
-  }
-  write('sound',sound?'Sound on':'Sound off')
-  $('sound').setAttribute('aria-pressed',String(sound))
-})
+
 for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>closeDialog(button.dataset.close))
 
 async function api(route,data){
@@ -695,6 +765,7 @@ function resetOnline(){
   setMenu()
 }
 async function connect(action){
+  unlockSound()
   if(online.connecting||online.connection)return
   if(!username)await refreshProfile()
   if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
@@ -865,7 +936,7 @@ async function openLobby(){
 }
 $('lobby').addEventListener('click',openLobby)
 $('home-play').addEventListener('click',openLobby)
-$('home-war').addEventListener('click',async()=>{await openLobby();await connect('warzone')})
+$('home-war').addEventListener('click',async()=>{unlockSound();await openLobby();await connect('warzone')})
 $('home-practice').addEventListener('click',()=>startPractice())
 $('home-after-match').addEventListener('click',async()=>{
   if(!practicing&&game.phase!=='over')return
