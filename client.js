@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -80,7 +80,8 @@ function startPractice(style=shipStyle,effect=cosmetic){
   practiceEffect=effect
   practiceBank=0
   menu=false
-  game=createGame({mode:'bot',difficulty:'training',field:currentField})
+  game=createGame({mode:'bot',difficulty:'training',field:currentField,
+    rival:{look:botLoadout([{ship:style,goal:effect}]),speed:0,offset:0,reaction:0}})
   game.craft[0].magnet=shipMagnet(practiceShip)
   renderHud()
 }
@@ -134,7 +135,7 @@ function renderEvent(){
   previousEvent=key
   const ours=event.seat===(event.kind==='goal'?teamOf(game,online.seat):online.seat)
   if(event.kind==='goal'){
-    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.scorer??(game.mode==='warzone'?-1:event.seat)]?.goal||(!online.connection&&ours?(practiceEffect||cosmetic):'classic'))
+    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.scorer??(game.mode==='warzone'?-1:event.seat)]?.goal||(!online.connection?(ours?(practiceEffect||cosmetic):game.rival?.look?.goal||'classic'):'classic'))
     beep(ours?660:175,.36,'triangle')
     cachedStatus=ours?'Goal!':'Opponent scores'
   }
@@ -377,7 +378,7 @@ function draw(dt){
     const ship=pos[seat], shipColor=game.craft[seat].color
     const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
-    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?(practicing?practiceShip:shipStyle):'classic'),rotation)
+    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?(practicing?practiceShip:shipStyle):game.rival?.look?.ship||'classic'),rotation)
   }
   disc(puck.x,puck.y,11,'#ffdb753a')
   disc(puck.x,puck.y,8,'#ffe382')

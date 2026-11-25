@@ -32,6 +32,22 @@ function ownedStyle(type,style,gear=[],legacyPack=false){
 function shipMagnet(style){
   return catalog.find(item=>item.type==='ship'&&item.id===style)||starterMagnet
 }
+const botStyles={
+  ship:catalog.filter(item=>item.type==='ship'&&!item.retired).map(item=>item.id),
+  goal:catalog.filter(item=>item.type==='effect'&&!item.retired).map(item=>item.id)
+}
+function botLoadout(used=[],random=Math.random){
+  const pick=type=>{
+    const available=botStyles[type].filter(id=>!used.some(look=>look?.[type]===id))
+    const pool=available.length?available:botStyles[type]
+    return pool[Math.floor(random()*pool.length)]
+  }
+  return {ship:pick('ship'),goal:pick('goal')}
+}
+function equipMagnet(craft,style){
+  const {range,push,pull}=shipMagnet(style)
+  craft.magnet={range,push,pull}
+}
 const stepSeconds = 1 / 120
 const fields = [
   {name:'Split Gates', bumpers:[{x:140,y:310,r:24},{x:222,y:201,r:24}]},
@@ -41,10 +57,10 @@ const fields = [
   {name:'Crosswind', bumpers:[{x:139,y:358,r:20},{x:221,y:162,r:20},{x:79,y:256,r:25},{x:281,y:264,r:25}]}
 ]
 const difficulties = {
-  training: {speed:84, shotPower:295, recovery:3.6, reaction:.65, line:.34},
-  easy: {speed:126, shotPower:385, recovery:2.45, reaction:.36, line:.46},
-  normal: {speed:177, shotPower:470, recovery:1.45, reaction:.24, line:.54},
-  hard: {speed:223, shotPower:535, recovery:1.05, reaction:.14, line:.62}
+  training: {speed:84, recovery:3.6, reaction:.65, line:.34},
+  easy: {speed:126, recovery:2.45, reaction:.36, line:.46},
+  normal: {speed:177, recovery:1.45, reaction:.24, line:.54},
+  hard: {speed:223, recovery:1.05, reaction:.14, line:.62}
 }
 const botRivals = [
   {name:'Bolt',style:'rush',speed:18,offset:0,reaction:-.035},
@@ -145,6 +161,8 @@ function createGame({mode='bot', field=0, difficulty='easy', rival=null, bots=nu
     craft:(mode==='warzone'?shipColors.flatMap(color=>Array(warTeamSize).fill(color)):shipColors).map(color=>({color})),
     puck:{}, lastShot:Array(mode==='warzone'?warTeamSize*2:2).fill(0), status:'', event:{id:0}
   }
+  if(mode==='bot')equipMagnet(game.craft[1],rival?.look?.ship)
+  if(mode==='warzone')bots?.forEach((bot,seat)=>{if(bot)equipMagnet(game.craft[seat],bot.look?.ship)})
   resetRound(game)
   return game
 }
@@ -185,13 +203,13 @@ function magnet(game,seat,push) {
   const d=distance(craft,puck)
   const ai=game.mode==='warzone'&&game.bots?.[seat]?difficulties[game.bots[seat].difficulty]:game.mode==='bot'&&seat===1?difficulties[game.difficulty]:null
   const stats=craft.magnet||starterMagnet
-  if(d>(ai?range:stats.range)||d<1){event(game,'miss',seat);return false}
-  const force=push?(ai?.shotPower??stats.push):-(ai?Math.min(330,d*5):stats.pull)
+  if(d>stats.range||d<1){event(game,'miss',seat);return false}
+  const force=push?stats.push:-stats.pull
   game.lastMagnetSeat=seat
   puck.vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
   puck.vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
   craft.cd=ai?.recovery??.85
-  game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:ai?range:stats.range})
+  game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:stats.range})
   event(game,push?'push':'pull',seat)
   return true
 }
@@ -269,7 +287,7 @@ function steerAttacker(game,target,puck,speed,dt){
       game.routeTime=0
     }
     game.routeTime+=dt
-    if(game.routeTime>=.8&&distance(ship,puck)>28&&distance(ship,puck)<=range&&magnet(game,1,false)){
+    if(game.routeTime>=.8&&distance(ship,puck)>28&&distance(ship,puck)<=(ship.magnet||starterMagnet).range&&magnet(game,1,false)){
       game.routeTime=0
     }
     target=candidate(game.routeSide)
@@ -282,6 +300,7 @@ function steerAttacker(game,target,puck,speed,dt){
 
 function runAI(game,dt) {
   const bot=game.craft[1], puck=game.puck, ai=difficulties[game.difficulty]
+  const reach=(bot.magnet||starterMagnet).range
   const rival=game.rival
   const speed=ai.speed+(rival?.speed||0)
   const last=game.lastAttackPosition
@@ -305,28 +324,28 @@ function runAI(game,dt) {
   const side=puck.x<48?1:puck.x>W-48?-1:0
   const end=puck.y<65?1:puck.y>H-65?-1:0
   if(side&&end){
-    const x=clamp(puck.x+side*77,42,W-42)
-    const y=clamp(puck.y+end*63,42,H-42)
+    const x=clamp(puck.x+side*reach*.6,42,W-42)
+    const y=clamp(puck.y+end*reach*.55,42,H-42)
     steer(bot,x,y,ai.speed,dt)
     const gap=distance(bot,puck)
-    const inward=(bot.x-puck.x)*side>54&&(bot.y-puck.y)*end>41
-    if(inward&&gap>=85&&gap<=range&&magnet(game,1,false)){
+    const inward=(bot.x-puck.x)*side>12&&(bot.y-puck.y)*end>12
+    if(inward&&gap>=22&&gap<=reach&&magnet(game,1,false)){
       game.escape={x:clamp(bot.x-side*41,29,W-29),y:clamp(bot.y+end*73,29,H-29),left:.8}
     }
     return
   }
   const offset=(rival?.offset||0)*clamp((320-puck.y)/150,0,1)
-  const behind=rival?.style==='rush'?33:44
+  const behind=Math.min(reach-3,rival?.style==='rush'?33:44)
   const defender=game.craft[0]
   const clearLane=puck.x<defender.x-20?-1:puck.x>defender.x+20?1:game.attackSide
   const goalX=W/2+clearLane*33
   const goalLine=(puck.x-goalX)*behind/Math.max(65,H-puck.y)
   const swing=12*Math.sin(game.elapsed*4.5+(rival?.offset||0)*.08)
   let targetX=clamp(puck.x+goalLine+offset+swing+puck.vx*.08,30,330)
-  let targetY=clamp(puck.y-behind+7*Math.cos(game.elapsed*3.7),29,455)
+  let targetY=clamp(puck.y-behind+7*Math.cos(game.elapsed*3.7),29,H-25)
   if(rival?.style==='guard'&&puck.y>285){
     targetX=clamp(puck.x+goalLine+swing,42,318)
-    targetY=clamp(puck.y-66,80,436)
+    targetY=clamp(puck.y-Math.min(reach-2,66),29,H-25)
   }
   const d=distance(bot,puck)
   const puckSlow=Math.hypot(puck.vx,puck.vy)<25
@@ -334,14 +353,14 @@ function runAI(game,dt) {
   const ahead=puck.y-bot.y
   const openLane=activeField(game).bumpers.every(bumper=>distance(puck,bumper)>bumper.r+85)
   // Close the gap instead of settling at a preferred shooting distance.
-  if(openLane&&puckSlow&&game.attackStall<1.05&&ahead>48&&Math.abs(puck.x-bot.x)<range){
+  if(openLane&&puckSlow&&game.attackStall<1.05&&ahead>reach&&Math.abs(puck.x-bot.x)<reach){
     steerAttacker(game,{x:clamp(puck.x+goalLine,30,W-30),
-      y:clamp(puck.y-29,30,H-30)},puck,speed,dt)
+      y:clamp(puck.y-Math.min(29,reach-3),30,H-30)},puck,speed,dt)
     game.attackStall=0
     return
   }
   const defenderInLane=defender.y>puck.y&&defender.y-puck.y<95&&Math.abs(defender.x-puck.x)<30
-  if(openLane&&puckSlow&&defenderInLane&&ahead>15&&d<range){
+  if(openLane&&puckSlow&&defenderInLane&&ahead>15&&d<reach){
     const flank=(defender.x<puck.x?-1:defender.x>puck.x?1:game.attackSide)
     const target={x:clamp(puck.x+flank*41,31,W-31),y:clamp(puck.y-29,31,H-31)}
     if(bot.cd<=0&&d>43&&Math.abs(puck.x-bot.x)>23&&magnet(game,1,false)){
@@ -357,8 +376,8 @@ function runAI(game,dt) {
     game.attackStall=0
     const line=puck.y-bot.y
     const aim=puck.x+(puck.x-bot.x)*(H-puck.y)/Math.max(line,1)
-    if(d<range&&line>18&&Math.abs(aim-goalX)<60&&magnet(game,1,true))return
-    if(d>42&&d<range&&magnet(game,1,false)){
+    if(d<reach&&line>18&&Math.abs(aim-goalX)<60&&magnet(game,1,true))return
+    if(d>Math.max(23,reach*.6)&&d<reach&&magnet(game,1,false)){
       game.escape={x:clamp(bot.x+game.attackSide*48,32,W-32),y:clamp(bot.y-27,32,H-32),left:.5}
     }else{
       const side=puck.x<90?1:puck.x>W-90?-1:game.attackSide
@@ -367,15 +386,20 @@ function runAI(game,dt) {
     game.attackSide*=-1
     if(game.escape)return
   }
-  steerAttacker(game,{x:targetX,y:targetY},puck,speed,dt)
+  const targetGap=Math.hypot(targetX-puck.x,targetY-puck.y)
+  const approach=Math.min(1,(reach-3)/Math.max(1,targetGap))
+  steerAttacker(game,{x:clamp(puck.x+(targetX-puck.x)*approach,24,W-24),
+    y:clamp(puck.y+(targetY-puck.y)*approach,24,H-24)},puck,speed,dt)
   game.think-=dt
   if(game.think>0)return
   game.think=ai.reaction+(rival?.reaction||0)
   const rise=puck.y-bot.y
   const aim=puck.x+(puck.x-bot.x)*(H-puck.y)/Math.max(rise,1)
-  if(distance(bot,puck)<84&&rise>20&&Math.abs(aim-goalX)<23+ai.line*45){
+  const gap=distance(bot,puck)
+  if(gap>reach)return
+  if(rise>16&&(Math.abs(aim-goalX)<23+ai.line*45||Math.abs(puck.x-bot.x)<rise*.4)){
     magnet(game,1,true)
-  }else if(rival?.style==='feint'&&d>85&&d<106&&puck.y>bot.y+45&&Math.abs(puck.vx)>70){
+  }else if(gap>23&&(puckSlow||rival?.style==='feint')){
     magnet(game,1,false)
   }
 }
@@ -410,7 +434,8 @@ function runWarTeam(game,team,inputs,dt){
     const [lane]=warSpawns[seat-first]
     const chase=seat===firstBot
     const support=seat===secondBot
-    const space=42+config.offset*.22
+    const reach=(ship.magnet||starterMagnet).range
+    const space=Math.min(reach-3,42+config.offset*.22)
     const dx=W/2-puck.x,dy=attackGoal-puck.y
     const length=Math.max(1,Math.hypot(dx,dy))
     const touch=distance(ship,puck)
@@ -419,7 +444,7 @@ function runWarTeam(game,team,inputs,dt){
       const corner=(puck.x<65||puck.x>W-65)&&(puck.y<65||puck.y>H-65)
       x=corner?puck.x+(W/2-puck.x)*.35:puck.x-dx/length*space
       y=corner?puck.y+(H/2-puck.y)*.27:puck.y-dy/length*space
-      if(!corner&&touch>80){x=puck.x;y=puck.y-direction*24}
+      if(!corner&&touch>reach+12){x=puck.x;y=puck.y-direction*24}
     }else if(support){
       x=puck.x+(ship.x<puck.x?-65:65)
       y=puck.y-direction*36
@@ -434,8 +459,8 @@ function runWarTeam(game,team,inputs,dt){
     if(game.botThink[seat]>0||ship.cd>0||(!chase&&!support))continue
     game.botThink[seat]=ai.reaction+.08
     const ahead=(puck.y-ship.y)*direction
-    if(touch<=range&&ahead>16&&Math.abs(puck.x-ship.x)<ahead*1.25)magnet(game,seat,true)
-    else if(chase&&touch>47&&touch<range&&Math.hypot(puck.vx,puck.vy)<70)magnet(game,seat,false)
+    if(touch<=reach&&ahead>16&&Math.abs(puck.x-ship.x)<ahead*1.25)magnet(game,seat,true)
+    else if(chase&&touch>Math.max(23,reach*.65)&&touch<reach&&Math.hypot(puck.vx,puck.vy)<70)magnet(game,seat,false)
   }
 }
 
@@ -525,7 +550,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,equipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 

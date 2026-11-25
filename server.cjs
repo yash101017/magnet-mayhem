@@ -11,7 +11,7 @@ const stake=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
-const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet}=require('./engine.cjs')
+const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,coinExchange,ownedStyle,botLoadout,equipMagnet}=require('./engine.cjs')
 const {handleWebhook}=require('./payment.cjs')
 const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
@@ -205,7 +205,7 @@ function fallbackSkill(skill,won,margin){
 function startMatch(players,field,kind,rival=null){
   const skill=rival?(profiles.get(players[0].profile).skill??profiles.get(players[0].profile).rating):1000
   const difficulty=difficultyForSkill(skill)
-  const style=rival?{...rival,speed:rival.speed+clamp((skill-1000)*.13,-20,25)}:null
+  const style=rival?{...rival,look:randomBotLook(players.map(player=>player.look)),speed:rival.speed+clamp((skill-1000)*.13,-20,25)}:null
   const game=createGame({mode:rival?'bot':'online',field,difficulty,rival:style})
   const names=players.map(player=>profiles.get(player.profile).username)
   if(rival)names.push(rival.displayName)
@@ -217,8 +217,7 @@ function registerMatch(match){
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
     player.match=match
-    const {range,push,pull}=shipMagnet(player.look.ship)
-    match.game.craft[seat].magnet={range,push,pull}
+    equipMagnet(match.game.craft[seat],player.look.ship)
     player.seat=seat
     player.input=getInput(null)
     player.rematch=false
@@ -230,9 +229,10 @@ function playerSkill(player){
   const account=profiles.get(player.profile)
   return account.skill??account.rating
 }
-function warBot(skill){
+function randomBotLook(used){return botLoadout(used,()=>randomInt(2**24)/2**24)}
+function warBot(skill,used){
   const style=botRivals[randomInt(botRivals.length)]
-  return {difficulty:difficultyForSkill(skill),speed:style.speed,offset:style.offset}
+  return {difficulty:difficultyForSkill(skill),speed:style.speed,offset:style.offset,look:randomBotLook(used)}
 }
 function freeBotName(names){
   let index=randomInt(opponentNames.length)
@@ -249,10 +249,13 @@ function startWarMatch(group){
   }
   const skill=Math.round(group.reduce((sum,player)=>sum+playerSkill(player),0)/group.length)
   const names=players.map(player=>player?profiles.get(player.profile).username:null)
+  const used=group.map(player=>player.look)
   const bots=players.map((player,seat)=>{
     if(player)return null
     names[seat]=freeBotName(names)
-    return warBot(skill)
+    const bot=warBot(skill,used)
+    used.push(bot.look)
+    return bot
   })
   const field=[3,4][randomInt(2)]
   const game=createGame({mode:'warzone',field,bots})
@@ -312,8 +315,9 @@ function remove(player){
       const seat=player.seat
       match.players[seat]=null
       match.names[seat]=freeBotName(match.names)
-      delete match.game.craft[seat].magnet
-      match.game.bots[seat]=warBot(match.skill)
+      const bot=warBot(match.skill,[...match.players.map(participant=>participant?.look),...match.game.bots.map(config=>config?.look)])
+      match.game.bots[seat]=bot
+      equipMagnet(match.game.craft[seat],bot.look.ship)
       match.game.botThink[seat]=0
       if(!match.players.some(Boolean))matches.delete(match.id)
     }else finish(match,1-player.seat,'forfeit')
@@ -466,7 +470,7 @@ function roomAction(data){
   const current=player.match
   const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event}=current.game
   return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event},
-    notice,names:current.names,looks:current.players.map(participant=>participant?.look),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
+    notice,names:current.names,looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(body))
@@ -499,7 +503,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'animated-effect-shop',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'bot-ship-loadouts',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
