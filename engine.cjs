@@ -23,7 +23,8 @@ const catalog=[
     currency:'coins',price:i<2?0:110+i*53,retired:i===9
   }))
 ]
-const diamondPacks=[{id:'diamonds-small',amount:10,price:150},{id:'diamonds-medium',amount:30,price:420},{id:'diamonds-large',amount:75,price:950}]
+const coinExchange={diamonds:10,coins:150,maxPacks:7}
+const diamondPacks=[{id:'diamonds-small',amount:10,price:10*coinExchange.coins/coinExchange.diamonds},{id:'diamonds-medium',amount:30,price:30*coinExchange.coins/coinExchange.diamonds},{id:'diamonds-large',amount:75,price:75*coinExchange.coins/coinExchange.diamonds}]
 function ownedStyle(type,style,gear=[],legacyPack=false){
   if(legacyPack&&['prism','gold'].includes(style))return style
   return catalog.some(item=>item.type===type&&item.id===style&&(!item.price||gear.includes(style)))?style:'classic'
@@ -524,7 +525,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,ownedStyle,shipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 

@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,ownedStyle,shipMagnet,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -9,7 +9,7 @@ let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSe
 let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
 const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
-let practicing=false,practiceBank=0
+let practicing=false,practiceBank=0,practiceShip=null
 let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
@@ -62,6 +62,7 @@ function clearPlayState(){
 }
 function setMenu(){
   practicing=false
+  practiceShip=null
   practiceBank=0
   clearPlayState()
   menu=true
@@ -69,17 +70,18 @@ function setMenu(){
   cachedStatus='First to 3'
   renderHud()
 }
-function startPractice(){
+function startPractice(style=shipStyle){
   clearPlayState()
   practicing=true
+  practiceShip=style
   practiceBank=0
   menu=false
   game=createGame({mode:'bot',difficulty:'training',field:currentField})
-  game.craft[0].magnet=shipMagnet(shipStyle)
+  game.craft[0].magnet=shipMagnet(practiceShip)
   renderHud()
 }
 function goReplay(){
-  if(practicing){startPractice();return}
+  if(practicing){startPractice(practiceShip);return}
   if(menu){openLobby();return}
   if(online.connection){
     online.rematch=true
@@ -351,7 +353,7 @@ function draw(dt){
     const ship=pos[seat], shipColor=game.craft[seat].color
     const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
-    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?shipStyle:'classic'),rotation)
+    drawShip(ctx,ship.x,ship.y,shipColor,online.state?.looks?.[seat]?.ship||(seat===online.seat?(practicing?practiceShip:shipStyle):'classic'),rotation)
   }
   disc(puck.x,puck.y,11,'#ffdb753a')
   disc(puck.x,puck.y,8,'#ffe382')
@@ -834,7 +836,7 @@ async function openLobby(){
 $('lobby').addEventListener('click',openLobby)
 $('home-play').addEventListener('click',openLobby)
 $('home-war').addEventListener('click',async()=>{await openLobby();await connect('warzone')})
-$('home-practice').addEventListener('click',startPractice)
+$('home-practice').addEventListener('click',()=>startPractice())
 $('home-after-match').addEventListener('click',async()=>{
   if(!practicing&&game.phase!=='over')return
   const connection=online.connection
@@ -972,8 +974,8 @@ function shipCard(item,run){
   const action=document.createElement('button')
   action.type='button'
   action.className='ship-action primary'
-  action.textContent=equipped?'Equipped':owned?'Equip':username&&coins>=item.price?'Buy · '+item.price+' coins':username?'Need '+item.price+' coins':'Connect to buy'
-  action.disabled=shopBusy||equipped||!owned&&(!username||coins<item.price)
+  action.textContent=equipped?'Equipped':owned?'Equip':'Buy · '+item.price+' coins'
+  action.disabled=shopBusy||equipped
   action.setAttribute('aria-label',action.textContent+' — '+item.name)
   select.addEventListener('click',()=>{
     if(active)return
@@ -988,9 +990,63 @@ function shipCard(item,run){
     selectedPreview=item
     shopAction(item)
   })
-  card.append(select,action)
+  const trial=document.createElement('button')
+  trial.type='button'
+  trial.className='ship-trial'
+  trial.textContent='Try it in practice match'
+  trial.setAttribute('aria-label','Try '+item.name+' in a practice match')
+  trial.disabled=shopBusy||Boolean(online.connection&&(!online.matchId||activeMatch()))
+  trial.addEventListener('click',()=>tryShip(item.id))
+  card.append(select,trial,action)
   return card
 }
+function tryShip(style){
+  if(online.connection&&(!online.matchId||activeMatch()))return
+  closeDialog('shop-dialog')
+  if(online.connection){
+    const token=online.connection.token
+    resetOnline()
+    api('/room',{action:'leave',token}).catch(()=>{})
+  }
+  startPractice(style)
+}
+let exchangeOffer=null
+function offerCoins(item){
+  if(!username){write('shop-message','Connect to your player profile to buy ships.');return}
+  const packs=Math.ceil((item.price-coins)/coinExchange.coins)
+  const cost=packs*coinExchange.diamonds
+  const amount=packs*coinExchange.coins
+  exchangeOffer={packs,profile}
+  write('coin-offer-text','Trade '+cost+' diamonds for '+amount+' Arena Coins?')
+  write('coin-offer-status',diamonds<cost?'You have '+diamonds+' diamonds.':'')
+  $('coin-offer-yes').disabled=diamonds<cost
+  showDialog('coin-offer')
+}
+$('coin-offer-no').addEventListener('click',()=>closeDialog('coin-offer'))
+$('coin-offer').addEventListener('close',()=>{
+  exchangeOffer=null
+  const card=$('shop-items').querySelector('[data-selected="true"] .ship-action')
+  card?.focus({preventScroll:true})
+})
+$('coin-offer-yes').addEventListener('click',async()=>{
+  if(shopBusy||!exchangeOffer||exchangeOffer.profile!==profile)return
+  const {packs}=exchangeOffer
+  shopBusy=true
+  $('coin-offer-yes').disabled=true
+  $('coin-offer-no').disabled=true
+  try{
+    applyProfile(await api('/redeem',{profile,gear:'exchange-coins',packs}))
+    closeDialog('coin-offer')
+    write('shop-message',packs*coinExchange.coins+' coins added. Click Buy to purchase the ship.')
+  }catch(error){
+    write('coin-offer-status',error.message)
+    $('coin-offer-yes').disabled=false
+  }finally{
+    shopBusy=false
+    $('coin-offer-no').disabled=false
+    updateShop()
+  }
+})
 function drawEffect(g,style,x,y,age){
   for(const particle of effectParticles(style)){
     g.fillStyle=particle.color
@@ -1037,6 +1093,7 @@ async function shopAction(item){
     updateShop()
     return
   }
+  if(item.type==='ship'&&(!username||coins<item.price)){offerCoins(item);return}
   shopBusy=true
   updateShop()
   try{

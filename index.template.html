@@ -156,9 +156,9 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 .market-ship-card{width:100%;gap:5px;padding:6px 7px}
 .ship-select{display:grid;justify-items:center;gap:5px;width:100%;min-width:0;padding:3px;background:transparent;border:1px solid transparent;border-radius:8px;color:inherit}
 .market-ship-card[data-selected=true]{border-color:#a8f1ee;background:#304462}
-.ship-action{width:100%;min-height:34px;padding:5px 3px;font-size:.79rem;visibility:hidden}
-.market-ship-card[data-selected=true] .ship-action,.market-ship-card:focus-within .ship-action{visibility:visible}
-@media(hover:hover){.market-ship-card:hover .ship-action{visibility:visible}}
+.ship-action,.ship-trial{width:100%;min-height:34px;padding:5px 3px;font-size:.79rem;visibility:hidden}
+.market-ship-card[data-selected=true] :is(.ship-action,.ship-trial),.market-ship-card:focus-within :is(.ship-action,.ship-trial){visibility:visible}
+@media(hover:hover){.market-ship-card:hover :is(.ship-action,.ship-trial){visibility:visible}}
 
 .market-preview{margin:12px 0;background:#202e51;border:1px solid #6681ac;border-radius:14px;padding:12px;display:grid;gap:8px}
 .market-preview canvas{width:100%;height:auto;max-height:84px;object-fit:contain;background:#141d36;border-radius:8px}
@@ -259,6 +259,16 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <div id="shop-items" class="market-grid"></div>
 </dialog>
 
+
+<dialog id="coin-offer" aria-labelledby="coin-offer-title">
+  <header><h2 id="coin-offer-title">Exchange diamonds</h2></header>
+  <p id="coin-offer-text"></p>
+  <p id="coin-offer-status" role="status"></p>
+  <div class="row">
+    <button id="coin-offer-no" type="button" autofocus>No</button>
+    <button id="coin-offer-yes" type="button" class="primary">Yes, exchange</button>
+  </div>
+</dialog>
 
 <script>
 /* ENGINE */

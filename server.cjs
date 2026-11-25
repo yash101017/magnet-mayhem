@@ -11,7 +11,7 @@ const stake=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
-const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,ownedStyle,shipMagnet}=require('./engine.cjs')
+const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet}=require('./engine.cjs')
 const {handleWebhook}=require('./payment.cjs')
 const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
@@ -158,6 +158,15 @@ async function accountAction(data,ip){
 function redeem(data){
   const key=identity(data.profile)
   const account=profiles.get(key)
+  if(data.gear==='exchange-coins'){
+    const count=data.packs
+    if(!Number.isInteger(count)||count<1||count>coinExchange.maxPacks)throw new Error('Invalid coin exchange.')
+    const diamonds=account.diamonds??starterDiamonds
+    const cost=count*coinExchange.diamonds
+    if(diamonds<cost)throw new Error('You need more diamonds.')
+    refreshCoins(account)
+    return saveAccount(key,{...account,diamonds:diamonds-cost,coins:account.coins+count*coinExchange.coins})
+  }
   const pack=diamondPacks.find(item=>item.id===data.gear)
   const item=catalog.find(item=>item.price&&!item.retired&&item.id===data.gear)
   if(!item&&!pack)throw new Error('Item unavailable.')
@@ -489,7 +498,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(shipArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'inline-ship-shop',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'ship-trials-and-exchange',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
