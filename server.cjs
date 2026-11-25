@@ -468,8 +468,8 @@ function roomAction(data){
     }
   }
   const current=player.match
-  const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event}=current.game
-  return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event},
+  const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit}=current.game
+  return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit},
     notice,names:current.names,looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
@@ -503,7 +503,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'audible-arcade-mix',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'audible-puck-impact',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

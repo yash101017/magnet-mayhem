@@ -6,7 +6,7 @@ const held=new Set()
 const online={connection:null,seat:0,busy:false,errors:0,rematch:false}
 const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ffe676','#68ffd9','#79b8ff','#e78aff'],gold:['#fff1b0','#ffb84c','#fb8233'],comet:['#efffff','#7aeeff','#7296ff']}
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
-let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
+let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null
@@ -66,6 +66,7 @@ function clearPlayState(){
   held.clear()
   shot=null
   previousEvent=''
+  previousHit=''
   previousOverlay=''
   bursts=[]
   pos=null
@@ -182,12 +183,22 @@ function syncMatchMusic(){
   }
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMatchMusic()})
-function beep(freq,duration,type='sine'){
+function beep(freq,duration,type='sine',volume=.08,endFreq=freq){
   if(!soundEnabled||!audio||audio.state!=='running')return
   const osc=audio.createOscillator(),gain=audio.createGain(),now=audio.currentTime
-  osc.type=type;osc.frequency.value=freq
-  gain.gain.setValueAtTime(.08,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
+  osc.type=type;osc.frequency.setValueAtTime(freq,now)
+  if(endFreq!==freq)osc.frequency.exponentialRampToValueAtTime(endFreq,now+duration)
+  gain.gain.setValueAtTime(volume,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
   osc.connect(gain).connect(audio.destination);osc.start(now);osc.stop(now+duration)
+}
+function impactSound(freq,endFreq){
+  if(music&&audio?.state==='running'){
+    const gain=music.output.gain,now=audio.currentTime
+    gain.cancelScheduledValues(now)
+    gain.setValueAtTime(.31,now)
+    gain.linearRampToValueAtTime(.55,now+.15)
+  }
+  beep(freq,.095,'triangle',.28,endFreq)
 }
 function effectParticles(theme){
   const item=catalog.find(entry=>entry.type==='effect'&&entry.id===theme)
@@ -207,6 +218,11 @@ function celebrate(x,y,theme){
   bursts.push(...effectParticles(theme).map(particle=>({...particle,x,y})))
 }
 function renderEvent(){
+  const hitKey=game.hit&&(online.matchId||'local')+':'+game.hit.id
+  if(hitKey&&hitKey!==previousHit){
+    previousHit=hitKey
+    impactSound(710,240)
+  }
   const event=game.event
   const key=(online.matchId||'local')+':'+event.id
   if(previousEvent===key||!event.id)return
@@ -218,7 +234,8 @@ function renderEvent(){
     cachedStatus=ours?'Goal!':'Opponent scores'
   }
   if(event.kind==='push'||event.kind==='pull'){
-    beep(event.kind==='push'?260:490,.12,'triangle')
+    if(event.kind==='push')impactSound(540,175)
+    else impactSound(340,590)
     if(ours)cachedStatus=''
   }
   if(event.kind==='miss'&&ours){cachedStatus='Get closer to the puck';beep(105,.10)}

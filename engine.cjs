@@ -239,6 +239,7 @@ function separate(a,b,radius,moveA,moveB,restitution) {
   const impulse=speed*(1+restitution)
   if(moveA){a.vx-=nx*impulse*moveA;a.vy-=ny*impulse*moveA}
   if(moveB){b.vx+=nx*impulse*moveB;b.vy+=ny*impulse*moveB}
+  return impulse
 }
 
 function steerAttacker(game,target,puck,speed,dt){
@@ -526,7 +527,11 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
       setInside(body,15)
     }
   }
-  for(const body of craft)separate(body,puck,23,0,1,.26)
+  let impact=0
+  for(const body of craft)impact=Math.max(impact,separate(body,puck,23,0,1,.26)||0)
+  if(impact>=28&&(!game.hit||game.elapsed-game.hit.time>=.11)){
+    game.hit={id:++game.serial,time:game.elapsed}
+  }
   puck.x+=puck.vx*dt
   puck.y+=puck.vy*dt
   const damping=Math.pow(.37,dt)
