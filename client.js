@@ -865,24 +865,20 @@ function updateShop(){
   write('shop-diamonds',diamonds.toLocaleString()+' diamonds')
   if(!$('shop-dialog').open)return
   const list=$('shop-items')
+  const run=++previewRun
   list.replaceChildren()
   const entries=shopPage==='diamonds'?diamondPacks:
     [...catalog,...(ownsPack?legacyGear:[])].filter(item=>item.type===shopPage&&(!item.retired||itemOwned(item)))
   for(const item of entries){
+    if(item.type==='ship'){list.append(shipCard(item,run));continue}
     const button=document.createElement('button')
     button.className='market-item'
     button.type='button'
     button.disabled=shopBusy
     button.setAttribute('aria-pressed',String(selectedPreview?.id===item.id))
     const art=document.createElement('canvas')
-    if(item.type==='ship'){
-      art.className='market-ship-art'
-      art.width=240
-      art.height=240
-    }else{
-      art.width=140
-      art.height=78
-    }
+    art.width=140
+    art.height=78
     art.setAttribute('aria-hidden','true')
     const g=art.getContext('2d')
     const name=document.createElement('strong')
@@ -893,10 +889,9 @@ function updateShop(){
       drawDiamond(g,item.amount)
     }else{
       name.textContent=item.name
-      const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
+      const equipped=item.id===cosmetic
       detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
-      if(item.type==='ship')drawShip(g,120,120,item.accent,item.id,0,7.8)
-      else drawEffect(g,item.id,70,39,.35)
+      drawEffect(g,item.id,70,39,.35)
     }
     button.append(art,name,detail)
     button.addEventListener('click',()=>{
@@ -909,19 +904,17 @@ function updateShop(){
     list.append(button)
   }
   const item=selectedPreview
-  $('shop-preview').hidden=!item
-  if(!item){previewRun++;return}
+  $('shop-preview').hidden=shopPage==='ship'||!item
+  if($('shop-preview').hidden)return
   const exchange=shopPage==='diamonds'
   const owned=!exchange&&itemOwned(item)
   const equipped=owned&&item.id===(item.type==='ship'?shipStyle:cosmetic)
   const currency=item.currency||'coins'
-  const stats=shipMagnet(item.id)
   write('preview-name',exchange?'Exchange for '+item.amount+' diamonds':item.name)
-  write('preview-stats',item.type==='ship'?stats.range+' range Â· '+stats.push+' push Â· '+stats.pull+' pull':
-    exchange?'Add diamonds to your wallet.':'Plays after a goal.')
+  write('preview-stats',exchange?'Add diamonds to your wallet.':'Plays after a goal.')
   write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' Â· '+item.price+' '+currency)
   $('shop-action').disabled=shopBusy||equipped||!owned&&(!username||(currency==='coins'?coins:diamonds)<item.price)
-  const g=$('preview').getContext('2d'), run=++previewRun
+  const g=$('preview').getContext('2d')
   if(item.type==='effect'){
     const start=performance.now()
     function animate(now){
@@ -934,9 +927,69 @@ function updateShop(){
     requestAnimationFrame(animate)
   }else{
     g.clearRect(0,0,320,84)
-    if(exchange){g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()}
-    else drawShip(g,160,42,item.accent,item.id,0,2.65)
+    g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()
   }
+}
+function shipCard(item,run){
+  const active=selectedPreview?.id===item.id
+  const owned=itemOwned(item)
+  const equipped=shipStyle===item.id
+  const card=document.createElement('div')
+  card.className='market-item market-ship-card'
+  card.dataset.selected=String(active)
+  const select=document.createElement('button')
+  select.type='button'
+  select.className='ship-select'
+  select.setAttribute('aria-pressed',String(active))
+  select.setAttribute('aria-label','Preview '+item.name)
+  const art=document.createElement('canvas')
+  art.className='market-ship-art'
+  art.width=art.height=240
+  art.setAttribute('aria-hidden','true')
+  const g=art.getContext('2d')
+  function paint(angle){
+    g.clearRect(0,0,240,240)
+    drawShip(g,120,120,item.accent,item.id,angle,7.8)
+  }
+  paint(0)
+  if(active){
+    const start=performance.now()
+    function spin(now){
+      if(run!==previewRun||!$('shop-dialog').open)return
+      paint((now-start)*.0017)
+      requestAnimationFrame(spin)
+    }
+    requestAnimationFrame(spin)
+  }
+  const name=document.createElement('strong')
+  name.textContent=item.name
+  const detail=document.createElement('small')
+  detail.textContent=equipped?'Equipped':owned?'Owned':item.price+' coins'
+  const stats=document.createElement('small')
+  const {range,push,pull}=shipMagnet(item.id)
+  stats.textContent='Range '+range+' · Push '+push+' · Pull '+pull
+  select.append(art,name,detail,stats)
+  const action=document.createElement('button')
+  action.type='button'
+  action.className='ship-action primary'
+  action.textContent=equipped?'Equipped':owned?'Equip':username&&coins>=item.price?'Buy · '+item.price+' coins':username?'Need '+item.price+' coins':'Connect to buy'
+  action.disabled=shopBusy||equipped||!owned&&(!username||coins<item.price)
+  action.setAttribute('aria-label',action.textContent+' — '+item.name)
+  select.addEventListener('click',()=>{
+    if(active)return
+    selectedPreview=item
+    write('shop-message','')
+    const index=Array.from($('shop-items').children).indexOf(card)
+    updateShop()
+    $('shop-items').children[index]?.firstElementChild?.focus({preventScroll:true})
+  })
+  action.addEventListener('click',()=>{
+    if(action.disabled)return
+    selectedPreview=item
+    shopAction(item)
+  })
+  card.append(select,action)
+  return card
 }
 function drawEffect(g,style,x,y,age){
   for(const particle of effectParticles(style)){
@@ -974,8 +1027,8 @@ $('shop').addEventListener('click',()=>showShop())
 $('result-shop').addEventListener('click',()=>showShop())
 $('featured-pack').addEventListener('click',()=>showShop('diamonds'))
 for(const tab of document.querySelectorAll('[data-market]'))tab.addEventListener('click',()=>setShopPage(tab.dataset.market))
-$('shop-action').addEventListener('click',async()=>{
-  const item=selectedPreview
+$('shop-action').addEventListener('click',()=>shopAction(selectedPreview))
+async function shopAction(item){
   if(!item||shopBusy)return
   if(item.type&&itemOwned(item)){
     if(item.type==='ship'){shipStyle=item.id;saved('ship-style',shipStyle)}
@@ -985,13 +1038,13 @@ $('shop-action').addEventListener('click',async()=>{
     return
   }
   shopBusy=true
-  $('shop-action').disabled=true
+  updateShop()
   try{
     applyProfile(await api('/redeem',{profile,gear:item.id}))
     write('shop-message',item.type?item.name+' unlocked. Select Equip to use it.':item.amount+' diamonds added.')
   }catch(error){write('shop-message',error.message)}
   finally{shopBusy=false;updateShop()}
-})
+}
 setMenu()
 requestAnimationFrame(frame)
 refreshProfile()
