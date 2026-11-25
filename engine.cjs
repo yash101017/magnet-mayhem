@@ -6,6 +6,31 @@ const wall = 14
 const cornerRadius = 56
 const goal = 66
 const range = 112
+const starterMagnet={range:28,push:370,pull:145}
+const shipNames=['Ice Ship','Sparrow','Manta','Sidewinder','Copperhead','Stingray','Ghostfin','Riptide','Kestrel','Starling','Obsidian','Wraith','Valkyrie','Nightfall','Pulsar','Vortex','Solaris','Monarch','Zenith','Singularity']
+const effectNames=['Comet Burst','Roseflare','Ion Rain','Solar Pop','Frost Crown','Ember Trail','Pixel Storm','Mint Rings','Tidal Bloom','Moonfall','Star Shower','Prismatic Wave','Copper Sparks','Aurora','Supernova','Crystal Halo','Phantom Mist','Gravity Well','Cosmic Bloom','Nova Crown']
+const accents=['#8ef0ff','#ff92c0','#ab9aff','#ffd17e','#a0f4c5','#ff927e','#8cafff','#e4afff','#fff18b','#b5edff']
+const catalog=[
+  {id:'classic',name:'Standard',type:'ship',accent:'#67f7ff',...starterMagnet},
+  {id:'classic',name:'Classic Burst',type:'effect',accent:'#fff1a0'},
+  ...shipNames.map((name,i)=>({
+    id:i===0?'ice':'ship-'+i,name,type:'ship',design:i,accent:accents[i%accents.length],
+    currency:i<10?'coins':'diamonds',price:i<10?90+i*65:18+(i-10)*7,
+    range:32+i*2,push:385+i*10,pull:153+i*7
+  })),
+  ...effectNames.map((name,i)=>({
+    id:i===0?'comet':'effect-'+i,name,type:'effect',design:i,accent:accents[(i+3)%accents.length],
+    currency:i<10?'coins':'diamonds',price:i===0?150:i<10?110+i*53:13+(i-10)*7
+  }))
+]
+const diamondPacks=[{id:'diamonds-small',amount:10,price:150},{id:'diamonds-medium',amount:30,price:420},{id:'diamonds-large',amount:75,price:950}]
+function ownedStyle(type,style,gear=[],legacyPack=false){
+  if(legacyPack&&['prism','gold'].includes(style))return style
+  return gear.includes(style)&&catalog.some(item=>item.type===type&&item.id===style)?style:'classic'
+}
+function shipMagnet(style){
+  return catalog.find(item=>item.type==='ship'&&item.id===style)||starterMagnet
+}
 const stepSeconds = 1 / 120
 const fields = [
   {name:'Split Gates', bumpers:[{x:140,y:310,r:24},{x:222,y:201,r:24}]},
@@ -83,6 +108,7 @@ function activeField(game) {
 }
 
 function resetRound(game) {
+  game.lastMagnetSeat=null
   game.think = .55
   game.escape = null
   game.attackStall = 0
@@ -142,6 +168,7 @@ function changeGoal(game,owner) {
   }
   game.score[owner]++
   event(game,'goal',owner)
+  if(game.lastMagnetSeat!==null&&teamOf(game,game.lastMagnetSeat)===owner)game.event.scorer=game.lastMagnetSeat
   if(game.score[owner]>=3||game.extra){
     game.winner=owner
     game.phase='over'
@@ -155,13 +182,15 @@ function magnet(game,seat,push) {
   const craft=game.craft[seat], puck=game.puck
   if(game.phase!=='play'||craft.cd>0)return false
   const d=distance(craft,puck)
-  if(d>range||d<1){event(game,'miss',seat);return false}
   const ai=game.mode==='warzone'&&game.bots?.[seat]?difficulties[game.bots[seat].difficulty]:game.mode==='bot'&&seat===1?difficulties[game.difficulty]:null
-  const force=push?(ai?.shotPower??570):-Math.min(330,d*5)
+  const stats=craft.magnet||starterMagnet
+  if(d>(ai?range:stats.range)||d<1){event(game,'miss',seat);return false}
+  const force=push?(ai?.shotPower??stats.push):-(ai?Math.min(330,d*5):stats.pull)
+  game.lastMagnetSeat=seat
   puck.vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
   puck.vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
   craft.cd=ai?.recovery??.85
-  game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push})
+  game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:ai?range:stats.range})
   event(game,push?'push':'pull',seat)
   return true
 }
@@ -495,7 +524,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,ownedStyle,shipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 

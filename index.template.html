@@ -135,6 +135,29 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 .shop-preview{margin-top:10px;padding:10px;border:1px solid #54678f;border-radius:13px;background:#131e36}
 .shop-preview #preview{margin-top:8px;aspect-ratio:320/84}
 @media(max-width:380px){.hero{min-height:220px}.game-header .brand-mark{display:none}.coin-total{padding:5px 6px}.home-actions small{font-size:.7rem}}
+
+#shop-dialog{width:min(94vw,620px);background:linear-gradient(150deg,#17254a,#11172e 70%);padding:clamp(12px,4vw,24px)}
+#shop-dialog header h2{font-size:clamp(1.4rem,5vw,2rem);letter-spacing:-.045em}
+.market-wallet{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 18px}
+.market-wallet b{border-radius:999px;padding:6px 11px;background:#372c34;color:#ffda8d;font-size:.83rem}
+.market-wallet b+b{background:#25355e;color:#b9eaff}
+.market-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:5px;background:#0d1530;border-radius:14px}
+.market-nav button{background:transparent;border-color:transparent;border-radius:10px;padding:7px 3px}
+.market-nav button[aria-pressed=true]{background:#a8f1ee;color:#122839}
+#shop-heading{margin:16px 0 2px;font-size:1.15rem}
+#shop-description,#preview-stats{color:#bfcae8;margin:3px 0 12px;font-size:.86rem}
+.market-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.market-item{min-width:0;min-height:110px;padding:6px;display:grid;justify-items:center;align-content:start;gap:4px;background:radial-gradient(ellipse at 50% 24%,#354774,#1a2546 65%);border:1px solid #42547f;border-radius:12px}
+.market-item[aria-pressed=true]{border-color:#a8f1ee;background:#304462}
+.market-item canvas{width:min(100%,140px);height:auto}
+.market-item strong{font-size:.85rem;line-height:1.2;overflow-wrap:anywhere}
+.market-item small{font-size:.73rem;color:#cddcff;line-height:1.2}
+.market-preview{margin:12px 0;background:#202e51;border:1px solid #6681ac;border-radius:14px;padding:12px;display:grid;gap:8px}
+.market-preview canvas{width:100%;height:auto;max-height:84px;object-fit:contain;background:#141d36;border-radius:8px}
+.market-preview h3{margin:0}
+#shop-message:not(:empty){padding:8px 0;color:#c4f4ef}
+@media(max-width:420px){.market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 </style>
 </head>
 <body>
@@ -155,7 +178,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
     </div>
   </div>
   <div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
-  <button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">✧</span><span><strong>Neon Founders Pack</strong><small>2 ship styles · 2 goal celebrations</small></span><b>$2.99</b></button>
+  <button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">◆</span><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
 </section>
 <section id="match-view" hidden>
 <div class="match-nav"><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
@@ -209,34 +232,23 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <p id="account-message" role="status"></p>
 </dialog>
 
-<dialog id="shop-dialog">
-<header><h2>Gear shop</h2><button data-close="shop-dialog">Close</button></header>
-<div class="shop-banner"><div><strong>Customize your ride.</strong><p>Make it yours with ships and goal effects.</p></div><b id="shop-coins"></b></div>
-<div class="card">
-<strong>Arena Coin rewards</strong>
-<p>Unlock gear with the coins you earn in the arena.</p>
-<div class="swatch-grid">
-<button data-ship-preview="ice"><span class="ship-swatch" style="color:#8ef0ff" aria-hidden="true"></span><span>Ice ship<small>90 coins</small></span></button>
-<button data-preview="comet"><span class="burst-swatch" style="color:#93eaff" aria-hidden="true">✺</span><span>Comet burst<small>150 coins</small></span></button>
-</div>
-</div>
-<div class="card pack-card">
-<strong>Neon Founders Pack <span class="tag" id="price">$2.99</span></strong>
-<p>Two hovercraft styles, two goal celebrations, and a Founders badge.</p>
-<div class="swatch-grid">
-  <button data-ship-preview="prism"><span class="ship-swatch prism" aria-hidden="true"></span>Prism ship</button>
-  <button data-ship-preview="gold"><span class="ship-swatch gold" aria-hidden="true"></span>Gold ship</button>
-  <button data-preview="prism"><span class="burst-swatch prism" aria-hidden="true">✺</span>Rainbow burst</button>
-  <button data-preview="gold"><span class="burst-swatch gold" aria-hidden="true">✷</span>Gold fireworks</button>
-</div>
-
-<div class="row"><button id="buy" class="primary" disabled>Checkout unavailable</button></div>
-</div>
-<div class="card">
-<strong>Starter gear</strong><p>Standard ship and celebration.</p>
-<div class="row"><button data-equip="classic">Equip celebration</button><button id="equip-standard-ship">Equip ship</button></div>
-</div>
-<div id="shop-preview" class="shop-preview" hidden><strong id="preview-name"></strong><canvas id="preview" width="320" height="84" hidden aria-label="Goal celebration preview"></canvas><div id="preview-controls" class="row" hidden><button id="equip-preview">Equip</button><button id="unlock-preview" class="primary" hidden>Unlock</button></div></div><p id="shop-message" role="status"></p>
+<dialog id="shop-dialog" aria-labelledby="shop-title">
+<header><h2 id="shop-title">Arena Shop</h2><button data-close="shop-dialog">Close</button></header>
+<div class="market-wallet"><b id="shop-coins">0 coins</b><b id="shop-diamonds">0 diamonds</b></div>
+<nav class="market-nav" aria-label="Shop pages">
+  <button type="button" data-market="ship" aria-pressed="true">Ships</button>
+  <button type="button" data-market="effect" aria-pressed="false">Effects</button>
+  <button type="button" data-market="diamonds" aria-pressed="false">Diamonds</button>
+</nav>
+<h3 id="shop-heading">Ships</h3>
+<p id="shop-description">Compare magnet range and push and pull power.</p>
+<section id="shop-preview" class="market-preview" hidden aria-labelledby="preview-name">
+  <canvas id="preview" width="320" height="84" aria-hidden="true"></canvas>
+  <div><h3 id="preview-name"></h3><p id="preview-stats"></p></div>
+  <button id="shop-action" type="button" class="primary">Equip</button>
+</section>
+<p id="shop-message" role="status"></p>
+<div id="shop-items" class="market-grid"></div>
 </dialog>
 
 

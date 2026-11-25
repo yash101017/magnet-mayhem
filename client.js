@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,range,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,ownedStyle,shipMagnet,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -8,10 +8,9 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null, sound=false
 const coinPrices={ice:90,comet:150}
-const gearNames={ice:'Ice Ship',comet:'Comet Burst',prism:'Prism',gold:'Gold'}
-let coins=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
+let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0
-let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, checkoutReady=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let backdrop=null, backdropKey=null, localPose=null
@@ -31,7 +30,7 @@ function updateButtonSide(){
   write('control-side','Buttons: '+(buttonSide==='left'?'Left':'Right'))
   $('control-side').setAttribute('aria-label','Move action buttons to the '+(buttonSide==='left'?'right':'left'))
 }
-function safeCosmetic(value){return gear.includes(value)||ownsPack&&['prism','gold'].includes(value)?value:'classic'}
+function safeCosmetic(type,value){return ownedStyle(type,value,gear,ownsPack)}
 for(const [index,field] of fields.entries()){
   const option=document.createElement('option')
   option.value=index
@@ -76,6 +75,7 @@ function startPractice(){
   practiceBank=0
   menu=false
   game=createGame({mode:'bot',difficulty:'training',field:currentField})
+  game.craft[0].magnet=shipMagnet(shipStyle)
   renderHud()
 }
 function goReplay(){
@@ -104,13 +104,21 @@ function beep(freq,duration,type='sine'){
   gain.gain.setValueAtTime(.08,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration)
   osc.connect(gain).connect(audio.destination);osc.start(now);osc.stop(now+duration)
 }
+function effectParticles(theme){
+  const item=catalog.find(entry=>entry.type==='effect'&&entry.id===theme)
+  const colors=themeColors[theme]||[item?.accent||'#fff1a0','#f6f4ff','#92a2ff']
+  const design=item?.design??0
+  return Array.from({length:36},(_,i)=>{
+    const arms=3+design%7
+    const angle=design%3===0?i*Math.PI/18:
+      (i%arms)*Math.PI*2/arms+Math.floor(i/arms)*(.07+design%5*.06)
+    const speed=45+(design%4===0?i%4*37:(i*43+design*11)%150)
+    return {vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,color:colors[i%colors.length],
+      radius:1.5+(i+design)%4*.65,life:.42+i%4*.12}
+  })
+}
 function celebrate(x,y,theme){
-  const colors=themeColors[theme]||themeColors.classic
-  for(let i=0;i<36;i++){
-    const angle=i*Math.PI*2/36
-    const speed=50+((i*43)%150)
-    bursts.push({x,y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,color:colors[i%colors.length],life:.45+i%4*.12})
-  }
+  bursts.push(...effectParticles(theme).map(particle=>({...particle,x,y})))
 }
 function renderEvent(){
   const event=game.event
@@ -119,7 +127,7 @@ function renderEvent(){
   previousEvent=key
   const ours=event.seat===(event.kind==='goal'?teamOf(game,online.seat):online.seat)
   if(event.kind==='goal'){
-    celebrate(180,event.seat===0?24:H-24,(game.mode!=='warzone'&&online.state?.looks?.[event.seat]?.goal)||(ours?cosmetic:'classic'))
+    celebrate(180,event.seat===0?24:H-24,online.state?.looks?.[event.scorer??(game.mode==='warzone'?-1:event.seat)]?.goal||(!online.connection&&ours?cosmetic:'classic'))
     beep(ours?660:175,.36,'triangle')
     cachedStatus=ours?'Goal!':'Opponent scores'
   }
@@ -199,7 +207,7 @@ function renderHud(){
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
     if(ownsPack&&game.winner===ownTeam)message+=' · Founders'
     const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
-    showOverlay(title,message,replay,!ownsPack)
+    showOverlay(title,message,replay,true)
   }
   const craft=game.craft[seat]
   const live=!menu&&game.phase==='play'&&(!online.connection||Boolean(online.matchId))
@@ -232,6 +240,19 @@ function drawShip(g,x,y,color,style,aim=0,scale=1){
   g.scale(scale,scale)
   g.fillStyle=color;g.beginPath();g.arc(0,0,14,0,Math.PI*2);g.fill()
   g.fillStyle='#111831';g.beginPath();g.arc(0,0,10,0,Math.PI*2);g.fill()
+  const design=catalog.find(item=>item.type==='ship'&&item.id===style)
+  if(design?.design>0){
+    const wings=design.design%5
+    const fin=3+Math.floor(design.design/5)*1.4
+    g.fillStyle=design.accent
+    g.beginPath()
+    g.moveTo(10,0);g.lineTo(-4+wings,-fin);g.lineTo(-11,-fin-wings*.7)
+    g.lineTo(-7+wings*.6,0);g.lineTo(-11,fin+wings*.7);g.lineTo(-4+wings,fin)
+    g.closePath();g.fill()
+    g.fillStyle='#111831';g.fillRect(-5,-1,9,2)
+    g.restore()
+    return
+  }
   g.strokeStyle=style==='prism'?'#d3a5ff':style==='gold'?'#ffd182':style==='ice'?'#8ef0ff':color
   g.lineWidth=2.2
   g.beginPath()
@@ -319,15 +340,16 @@ function draw(dt){
     pos[index].y+=(y-pos[index].y)*blend
   })
   const puck=pos[game.craft.length]
-  const ours=pos[online.seat], color=game.craft[online.seat].color
+  const ship=game.craft[online.seat]
+  const ours=pos[online.seat], color=ship.color, reach=(ship.magnet||shipMagnet('classic')).range
   if(!menu&&game.phase==='play'){
     ctx.setLineDash([3,6])
-    ring(ours.x,ours.y,range,distance(ours,puck)<=range?color+'70':color+'25')
+    ring(ours.x,ours.y,reach,distance(ours,puck)<=reach?color+'70':color+'25')
     ctx.setLineDash([])
   }
   for(const effect of game.effects){
     ctx.globalAlpha=1-effect.t/.34
-    ring(effect.x,effect.y,effect.push?20+effect.t*280:112-effect.t*260,effect.color,3)
+    ring(effect.x,effect.y,effect.push?12+effect.t*(effect.reach||112)*2.4:Math.max(4,(effect.reach||112)*(1-effect.t*2.3)),effect.color,3)
   }
   ctx.globalAlpha=1
   game.trail.forEach((point,i)=>{ctx.globalAlpha=i*.035;disc(point.x,point.y,3+i*.38,'#f9dc79')})
@@ -345,7 +367,7 @@ function draw(dt){
     if(particle.life<=0)return false
     particle.x+=particle.vx*dt;particle.y+=particle.vy*dt
     ctx.globalAlpha=Math.min(1,particle.life*2)
-    disc(particle.x,particle.y,2.5,particle.color)
+    disc(particle.x,particle.y,particle.radius,particle.color)
     return true
   })
   ctx.globalAlpha=1
@@ -497,10 +519,10 @@ function applyProfile(data){
     profile=null
     username=null
     coins=0
+    diamonds=0
     gear=[]
     refillDeadline=null
     ownsPack=false
-    checkoutReady=false
     cosmetic='classic'
     shipStyle='classic'
     guestMode=true
@@ -516,12 +538,12 @@ function applyProfile(data){
   else if(saved('guest-profile')===profile)saved('guest-profile','')
   if(!guestMode&&saved('guest-device')===profile)saved('guest-device','')
   coins=data.coins||0
+  diamonds=data.diamonds||0
   refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
   gear=data.gear||[]
   ownsPack=data.ownsPack
-  checkoutReady=data.checkoutReady
-  cosmetic=safeCosmetic(saved('cosmetic'))
-  shipStyle=safeCosmetic(saved('ship-style'))
+  cosmetic=safeCosmetic('effect',saved('cosmetic'))
+  shipStyle=safeCosmetic('ship',saved('ship-style'))
   write('rating',username?'Rating '+data.rating:'')
   updateShop()
 }
@@ -654,7 +676,7 @@ async function connect(action){
   online.connecting=true
   write('room-message','Connecting…')
   try{
-    const result=await api('/room',{action,profile,field:currentField,code:$('room-input').value.trim().toUpperCase()})
+    const result=await api('/room',{action,profile,field:currentField,look:{ship:shipStyle,goal:cosmetic},code:$('room-input').value.trim().toUpperCase()})
     setProfile(result.profile)
     clearPlayState()
     online.connection=result
@@ -672,7 +694,7 @@ async function connect(action){
   finally{online.connecting=false}
 }
 function matchInput(){
-  return {action:'sync',token:online.connection.token,input:inputState(),look:{ship:shipStyle,goal:cosmetic},rematch:online.rematch}
+  return {action:'sync',token:online.connection.token,input:inputState(),look:online.rematch?{ship:shipStyle,goal:cosmetic}:undefined,rematch:online.rematch}
 }
 function closeMatchStream(){
   const old=matchSocket
@@ -837,133 +859,142 @@ $('copy').addEventListener('click',async()=>{
 })
 setInterval(syncOnline,34)
 
+let shopPage='ship', shopBusy=false, previewRun=0
+const legacyGear=['prism','gold'].flatMap(id=>['ship','effect'].map(type=>({
+  id,type,name:(id==='prism'?'Prism':'Gold')+(type==='ship'?' Ship':' Burst'),
+  accent:id==='prism'?'#d3a5ff':'#ffd182'
+})))
+function itemOwned(item){
+  return item.id==='classic'||safeCosmetic(item.type,item.id)===item.id
+}
 function updateShop(){
-  $('buy').hidden=ownsPack
-  write('shop-coins',coins+' coins')
-  const style=selectedPreview?.style
-  const cost=coinPrices[style]
-  const canEquip=Boolean(style&&safeCosmetic(style)===style)
-  $('preview-controls').hidden=!selectedPreview||!canEquip&&!cost
-  $('equip-preview').hidden=!canEquip
-  $('unlock-preview').hidden=!cost||canEquip
-  $('unlock-preview').disabled=!username||coins<cost
-  if(cost)write('unlock-preview','Unlock for '+cost+' coins')
-  $('equip-standard-ship').disabled=shipStyle==='classic'
-  $('buy').disabled=!checkoutReady
-  write('buy',checkoutReady?'Buy pack':'Checkout unavailable')
-  for(const button of document.querySelectorAll('[data-equip]')){
-    button.hidden=button.dataset.equip!=='classic'&&!ownsPack
-    button.disabled=button.dataset.equip===cosmetic
-  }
-}
-function showShop(){
-  $('preview').hidden=true
-  $('shop-preview').hidden=true
-  selectedPreview=null
-  updateShop()
-  write('shop-message',ownsPack?'Founders pack unlocked.':
-    checkoutReady?'One payment. Every match and course stays free.':
-    'Coin rewards are available. Founders checkout is not connected.')
-  showDialog('shop-dialog')
-}
-for(const id of ['shop','featured-pack','result-shop'])$(id).addEventListener('click',showShop)
-for(const button of document.querySelectorAll('[data-equip]'))button.addEventListener('click',()=>{
-  cosmetic=safeCosmetic(button.dataset.equip)
-  saved('cosmetic',cosmetic)
-  updateShop()
-  write('shop-message','Celebration equipped.')
-})
-function showGearPreview(){
-  const {type,style}=selectedPreview
-  const name=gearNames[style]+(['prism','gold'].includes(style)?(type==='ship'?' Ship':' Celebration'):'')
-  write('preview-name',name)
-  $('shop-preview').hidden=false
-  $('shop-preview').scrollIntoView({block:'nearest',behavior:'smooth'})
-}
-let previewRun=0
-for(const button of document.querySelectorAll('[data-preview]'))button.addEventListener('click',()=>{
-  selectedPreview={type:'goal',style:button.dataset.preview}
-  showGearPreview()
-  updateShop()
-  const preview=$('preview'),g=preview.getContext('2d'), colors=themeColors[button.dataset.preview]
-  preview.hidden=false
-  const id=++previewRun,start=performance.now()
-  function animate(now){
-    if(id!==previewRun)return
-    const t=Math.min(1,(now-start)/760)
-    g.clearRect(0,0,320,84)
-    g.globalAlpha=1-t*.8
-    for(let i=0;i<32;i++){
-      const angle=i*Math.PI/16
-      g.fillStyle=colors[i%colors.length]
-      g.beginPath()
-      g.arc(160+Math.cos(angle)*t*(40+(i*13)%110),42+Math.sin(angle)*t*(20+(i*7)%23),3,0,Math.PI*2)
-      g.fill()
+  write('shop-coins',coins.toLocaleString()+' coins')
+  write('shop-diamonds',diamonds.toLocaleString()+' diamonds')
+  if(!$('shop-dialog').open)return
+  const list=$('shop-items')
+  list.replaceChildren()
+  const entries=shopPage==='diamonds'?diamondPacks:
+    [...catalog,...(ownsPack?legacyGear:[])].filter(item=>item.type===shopPage)
+  for(const item of entries){
+    const button=document.createElement('button')
+    button.className='market-item'
+    button.type='button'
+    button.disabled=shopBusy
+    button.setAttribute('aria-pressed',String(selectedPreview?.id===item.id))
+    const art=document.createElement('canvas')
+    art.width=140;art.height=78
+    art.setAttribute('aria-hidden','true')
+    const g=art.getContext('2d')
+    const name=document.createElement('strong')
+    const detail=document.createElement('small')
+    if(shopPage==='diamonds'){
+      name.textContent=item.amount+' diamonds'
+      detail.textContent=item.price+' coins'
+      drawDiamond(g,item.amount)
+    }else{
+      name.textContent=item.name
+      const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
+      detail.textContent=equipped?'Equipped':itemOwned(item)?'Owned':item.price+' '+item.currency
+      if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,-.34,2.1)
+      else drawEffect(g,item.id,70,39,.35)
     }
-    g.globalAlpha=1
-    if(t<1)requestAnimationFrame(animate)
+    button.append(art,name,detail)
+    button.addEventListener('click',()=>{
+      selectedPreview=item
+      write('shop-message','')
+      updateShop()
+      $('shop-preview').scrollIntoView({block:'nearest'})
+      $('shop-action').focus({preventScroll:true})
+    })
+    list.append(button)
   }
-  requestAnimationFrame(animate)
-})
-for(const button of document.querySelectorAll('[data-ship-preview]'))button.addEventListener('click',()=>{
-  previewRun++
-  selectedPreview={type:'ship',style:button.dataset.shipPreview}
-  showGearPreview()
-  const preview=$('preview'),g=preview.getContext('2d')
-  preview.hidden=false
-  g.clearRect(0,0,320,84)
-  drawShip(g,160,42,'#67f7ff',selectedPreview.style,-.25,2.4)
-  updateShop()
-})
-$('equip-preview').addEventListener('click',()=>{
-  if(!selectedPreview||safeCosmetic(selectedPreview.style)!==selectedPreview.style)return
-  if(selectedPreview.type==='ship'){
-    shipStyle=safeCosmetic(selectedPreview.style)
-    saved('ship-style',shipStyle)
-    write('shop-message','Ship equipped.')
+  const item=selectedPreview
+  $('shop-preview').hidden=!item
+  if(!item){previewRun++;return}
+  const exchange=shopPage==='diamonds'
+  const owned=!exchange&&itemOwned(item)
+  const equipped=owned&&item.id===(item.type==='ship'?shipStyle:cosmetic)
+  const currency=item.currency||'coins'
+  const stats=shipMagnet(item.id)
+  write('preview-name',exchange?'Exchange for '+item.amount+' diamonds':item.name)
+  write('preview-stats',item.type==='ship'?stats.range+' range · '+stats.push+' push · '+stats.pull+' pull':
+    exchange?'Use diamonds to unlock ships and goal effects.':'Plays after a goal.')
+  write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' · '+item.price+' '+currency)
+  $('shop-action').disabled=shopBusy||equipped||!owned&&(!username||(currency==='coins'?coins:diamonds)<item.price)
+  const g=$('preview').getContext('2d'), run=++previewRun
+  if(item.type==='effect'){
+    const start=performance.now()
+    function animate(now){
+      if(run!==previewRun||!$('shop-dialog').open)return
+      const age=Math.min(.72,(now-start)/1000)
+      g.clearRect(0,0,320,84)
+      drawEffect(g,item.id,160,42,age)
+      if(age<.72)requestAnimationFrame(animate)
+    }
+    requestAnimationFrame(animate)
   }else{
-    cosmetic=safeCosmetic(selectedPreview.style)
-    saved('cosmetic',cosmetic)
-    write('shop-message','Goal celebration equipped.')
+    g.clearRect(0,0,320,84)
+    if(exchange){g.save();g.translate(90,3);drawDiamond(g,item.amount);g.restore()}
+    else drawShip(g,160,42,item.accent,item.id,-.25,2.25)
   }
-  updateShop()
-})
-$('unlock-preview').addEventListener('click',async()=>{
-  const style=selectedPreview?.style
-  if(!username||!coinPrices[style]||coins<coinPrices[style])return
-  $('unlock-preview').disabled=true
-  try{
-    applyProfile(await api('/redeem',{profile,gear:style}))
-    write('shop-message','Unlocked. You can equip it now.')
-  }catch(error){write('shop-message',error.message);updateShop()}
-})
-$('equip-standard-ship').addEventListener('click',()=>{
-  shipStyle='classic'
-  saved('ship-style',shipStyle)
-  updateShop()
-  write('shop-message','Standard ship equipped.')
-})
-$('buy').addEventListener('click',async()=>{
-  if(!checkoutReady||ownsPack)return
-  $('buy').disabled=true
-  try{
-    const data=await api('/checkout',{profile})
-    location.assign(data.url)
-  }catch(error){write('shop-message',error.message);$('buy').disabled=false}
-})
-async function checkPaymentReturn(){
-  const query=new URLSearchParams(location.search)
-  if(!query.has('checkout'))return
-  history.replaceState(null,'',location.pathname)
-  await refreshProfile()
-  showShop()
-  write('shop-message',ownsPack?'Payment confirmed. Your pack is ready.':
-    query.get('checkout')==='cancel'?'Checkout canceled.':'Payment is being confirmed. Reopen the shop shortly.')
 }
+function drawEffect(g,style,x,y,age){
+  for(const particle of effectParticles(style)){
+    g.fillStyle=particle.color
+    g.globalAlpha=Math.max(.08,1-age/particle.life)
+    g.beginPath()
+    g.arc(x+particle.vx*age,y+particle.vy*age*.7,particle.radius,0,Math.PI*2)
+    g.fill()
+  }
+  g.globalAlpha=1
+}
+function drawDiamond(g,amount){
+  g.fillStyle=amount>30?'#d7aaff':'#91f0ff'
+  g.beginPath()
+  g.moveTo(70,13);g.lineTo(95,30);g.lineTo(70,65);g.lineTo(45,30);g.closePath();g.fill()
+  g.fillStyle='#496aab'
+  g.beginPath()
+  g.moveTo(45,30);g.lineTo(95,30);g.lineTo(70,65);g.closePath();g.fill()
+}
+function setShopPage(page){
+  shopPage=page
+  selectedPreview=null
+  for(const tab of document.querySelectorAll('[data-market]'))tab.setAttribute('aria-pressed',String(tab.dataset.market===page))
+  write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':'Diamond exchange')
+  write('shop-description',page==='ship'?'Compare magnet range and push and pull power.':
+    page==='effect'?'Preview the celebration that plays when you score.':'Trade Arena Coins for diamonds.')
+  write('shop-message','')
+  updateShop()
+}
+function showShop(page='ship'){
+  showDialog('shop-dialog')
+  setShopPage(page)
+}
+$('shop').addEventListener('click',()=>showShop())
+$('result-shop').addEventListener('click',()=>showShop())
+$('featured-pack').addEventListener('click',()=>showShop('diamonds'))
+for(const tab of document.querySelectorAll('[data-market]'))tab.addEventListener('click',()=>setShopPage(tab.dataset.market))
+$('shop-action').addEventListener('click',async()=>{
+  const item=selectedPreview
+  if(!item||shopBusy)return
+  if(item.type&&itemOwned(item)){
+    if(item.type==='ship'){shipStyle=item.id;saved('ship-style',shipStyle)}
+    else{cosmetic=item.id;saved('cosmetic',cosmetic)}
+    write('shop-message',item.name+' equipped for your next match.')
+    updateShop()
+    return
+  }
+  shopBusy=true
+  $('shop-action').disabled=true
+  try{
+    applyProfile(await api('/redeem',{profile,gear:item.id}))
+    write('shop-message',item.type?item.name+' unlocked. Select Equip to use it.':item.amount+' diamonds added.')
+  }catch(error){write('shop-message',error.message)}
+  finally{shopBusy=false;updateShop()}
+})
 setMenu()
 requestAnimationFrame(frame)
 refreshProfile()
-checkPaymentReturn()
 
 
 

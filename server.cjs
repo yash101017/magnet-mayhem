@@ -6,13 +6,13 @@ const {randomBytes,randomInt,scrypt,timingSafeEqual}=require('node:crypto')
 const {promisify}=require('node:util')
 const derive=promisify(scrypt)
 const opponentNames=require('./opponent-names.cjs')
-const coinGear={ice:90,comet:150}
+const starterDiamonds=25
 const stake=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
-const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp}=require('./engine.cjs')
-const {createCheckout,checkoutEnabled,handleWebhook}=require('./payment.cjs')
+const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,ownedStyle,shipMagnet}=require('./engine.cjs')
+const {handleWebhook}=require('./payment.cjs')
 const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
 
@@ -68,7 +68,7 @@ function canEnter(profile){
 function profileState(key){
   const account=profiles.get(key)
   refreshCoins(account)
-  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack,checkoutReady:checkoutEnabled()}
+  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,diamonds:account.diamonds??starterDiamonds,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack}
 }
 function saveAccount(key,account){
   const prior=profiles.get(key)
@@ -157,19 +157,22 @@ async function accountAction(data,ip){
 function redeem(data){
   const key=identity(data.profile)
   const account=profiles.get(key)
-  const gear=data.gear
-  if(typeof gear!=='string'||!Object.hasOwn(coinGear,gear))throw new Error('Item unavailable.')
-  if(account.gear?.includes(gear))return profileState(key)
+  const pack=diamondPacks.find(item=>item.id===data.gear)
+  const item=catalog.find(item=>item.price&&item.id===data.gear)
+  if(!item&&!pack)throw new Error('Item unavailable.')
+  if(item&&account.gear?.includes(item.id))return profileState(key)
   refreshCoins(account)
-  const active=identities.get(key)
-  const reserved=active&&(!active.match?.results||active.rematch)?stake:0
-  const price=coinGear[gear]
-  if(account.coins-reserved<price)throw new Error('Earn more Arena Coins to unlock this.')
-  const updated={...account,coins:account.coins-price,gear:[...(account.gear||[]),gear]}
-  profiles.set(key,updated)
-  try{persist()}catch(error){profiles.set(key,account);throw error}
-  return profileState(key)
+  const currency=item?.currency||'coins'
+  const diamonds=account.diamonds??starterDiamonds
+  const balance=currency==='coins'?account.coins:diamonds
+  const price=(item||pack).price
+  if(balance<price)throw new Error('You need more '+currency+'.')
+  const updated={...account,diamonds,[currency]:balance-price}
+  if(pack)updated.diamonds+=pack.amount
+  if(item)updated.gear=[...(account.gear||[]),item.id]
+  return saveAccount(key,updated)
 }
+
 function getInput(raw){
   if(!raw||typeof raw!=='object')return {dx:0,dy:0}
   const direction=value=>Number.isFinite(value)?clamp(value,-1,1):0
@@ -203,6 +206,8 @@ function registerMatch(match){
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
     player.match=match
+    const {range,push,pull}=shipMagnet(player.look.ship)
+    match.game.craft[seat].magnet={range,push,pull}
     player.seat=seat
     player.input=getInput(null)
     player.rematch=false
@@ -296,6 +301,7 @@ function remove(player){
       const seat=player.seat
       match.players[seat]=null
       match.names[seat]=freeBotName(match.names)
+      delete match.game.craft[seat].magnet
       match.game.bots[seat]=warBot(match.skill)
       match.game.botThink[seat]=0
       if(!match.players.some(Boolean))matches.delete(match.id)
@@ -303,11 +309,18 @@ function remove(player){
   }
   scrub(player)
 }
-function makeSession(profile){
+function playerLook(profile,look){
+  const account=profiles.get(profile)
+  return {
+    ship:ownedStyle('ship',look?.ship,account.gear,account.ownsPack),
+    goal:ownedStyle('effect',look?.goal,account.gear,account.ownsPack)
+  }
+}
+function makeSession(profile,look){
   if(!canEnter(profile))throw new Error('You need 30 Arena Coins. Try free practice while your coins refill.')
   if(identities.has(profile))throw new Error('This profile is already in an online session. Use a private window for a second player.')
   if(sessions.size>=500)throw new Error('All online slots are occupied.')
-  const player={token:id(),profile,seen:Date.now(),input:getInput(null)}
+  const player={token:id(),profile,seen:Date.now(),input:getInput(null),look:playerLook(profile,look)}
   sessions.set(player.token,player)
   identities.set(profile,player)
   return player
@@ -390,12 +403,12 @@ function roomAction(data){
       const owner=inviteRooms.get(data.code)
       if(!owner||owner.match)throw new Error('Room unavailable. Ask your friend for a new code.')
       const profile=identity(data.profile)
-      const player=makeSession(profile)
+      const player=makeSession(profile,data.look)
       startMatch([owner,player],owner.field,'private')
       return {profile,token:player.token,code:data.code}
     }
     const profile=identity(data.profile)
-    const player=makeSession(profile)
+    const player=makeSession(profile,data.look)
     if(data.action==='rank'||data.action==='warzone'){
       player.queuedAt=Date.now()
       const queue=data.action==='warzone'?warQueue:queued
@@ -413,16 +426,13 @@ function roomAction(data){
   if(data.action!=='sync')throw new Error('Unknown room action.')
   player.seen=Date.now()
   player.input=getInput(data.input)
-  const account=profiles.get(player.profile)
-  const paid=value=>account.ownsPack&&['prism','gold'].includes(value)
-  const style=(value,earned)=>paid(value)||(value===earned&&account.gear?.includes(value))?value:'classic'
-  player.look={ship:style(data.look?.ship,'ice'),goal:style(data.look?.goal,'comet')}
   const match=player.match
   if(!match)return {queued:queued.has(player.token)||warQueue.has(player.token)}
   let notice
   if(data.rematch&&match.results&&!canEnter(player.profile)){
     notice='You need 30 Arena Coins. Try free practice while your coins refill.'
   }else if(data.rematch&&match.results){
+    if(data.look)player.look=playerLook(player.profile,data.look)
     if(['ranked','fallback','warzone'].includes(match.kind)){
       player.match=null
       player.queuedAt=Date.now()
@@ -474,8 +484,8 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'war-zone-5v5',stream:streamAvailable});return}
-  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/checkout','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arena-shop-upgrades',stream:streamAvailable});return}
+  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
   const count=addressLimits.get(ip)||{start:now,count:0}
@@ -499,10 +509,7 @@ async function serve(req,res){
     }
     if(route==='/redeem'){send(res,200,redeem(data));return}
     if(route==='/account'){send(res,200,await accountAction(data,ip));return}
-    if(!legalKey(data.profile)||!profiles.has(data.profile))throw new Error('Open the shop again to create a profile.')
-    if(profiles.get(data.profile).ownsPack)throw new Error('This profile already owns the pack.')
-    if(dirty)persist()
-    send(res,200,{url:await createCheckout(data.profile)})
+
   }catch(error){send(res,error.statusCode||400,{error:error.message||'Request failed.'})}
 }
 const port=Number(process.env.PORT||8792)
