@@ -918,7 +918,7 @@ function updateShop(){
   const stats=shipMagnet(item.id)
   write('preview-name',exchange?'Exchange for '+item.amount+' diamonds':item.name)
   write('preview-stats',item.type==='ship'?stats.range+' range Â· '+stats.push+' push Â· '+stats.pull+' pull':
-    exchange?'Use diamonds to unlock ships and goal effects.':'Plays after a goal.')
+    exchange?'Add diamonds to your wallet.':'Plays after a goal.')
   write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' Â· '+item.price+' '+currency)
   $('shop-action').disabled=shopBusy||equipped||!owned&&(!username||(currency==='coins'?coins:diamonds)<item.price)
   const g=$('preview').getContext('2d'), run=++previewRun
