@@ -986,6 +986,7 @@ function musicVoice(time,duration,hz,level,type,endHz=hz){
   voice.frequency.exponentialRampToValueAtTime(endHz,time+duration)
   envelope.gain.setValueAtTime(.0001,time)
   envelope.gain.exponentialRampToValueAtTime(level,time+.009)
+  envelope.gain.exponentialRampToValueAtTime(level*.52,time+duration*.65)
   envelope.gain.exponentialRampToValueAtTime(.0001,time+duration)
   voice.connect(envelope).connect(music.output)
   voice.start(time)
@@ -997,7 +998,7 @@ function syncMatchMusic(){
   if(!live){stopMatchMusic();return}
   if(!music){
     const output=audio.createGain()
-    output.gain.value=.18
+    output.gain.value=.55
     output.connect(audio.destination)
     music={output,next:audio.currentTime+.025,step:0}
   }
@@ -1008,12 +1009,12 @@ function syncMatchMusic(){
     const step=music.step%16
     const bar=arcadeScore[Math.floor(music.step/16)%arcadeScore.length]
     const time=music.next
-    if(step%4===0)musicVoice(time,.105,105,.42,'sine',42)
-    if(step%2===1)musicVoice(time,.04,5800,.036,'triangle',3600)
-    if(step%4===2||step===15)musicVoice(time,.14,hz(bar.root+(step===15?12:0)),.16,'triangle')
-    if(step===0||step===8)bar.chord.forEach((note,i)=>musicVoice(time+i*.016,.31,hz(note),.055,'triangle'))
+    if(step%4===0)musicVoice(time,.14,145,.24,'sine',52)
+    if(step%2===1)musicVoice(time,.045,4200,.065,'triangle',2700)
+    if(step%4===0||step%4===2||step===15)musicVoice(time,.22,hz(bar.root+12+(step===15?7:0)),.20,'triangle')
+    if(step===0||step===8)bar.chord.forEach((note,i)=>musicVoice(time+i*.016,.85,hz(note),.09,'sine'))
     const lead=step%2===0?bar.riff[step/2]:0
-    if(lead)musicVoice(time,.19,hz(lead),.074,'sine')
+    if(lead)musicVoice(time,.24,hz(lead),.24,'triangle')
     music.next+=beatStep
     music.step++
   }
