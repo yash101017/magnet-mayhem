@@ -15,18 +15,18 @@ const catalog=[
   {id:'classic',name:'Classic Burst',type:'effect',accent:'#fff1a0'},
   ...shipNames.map((name,i)=>({
     id:i===0?'ice':'ship-'+i,name,type:'ship',design:i,accent:accents[i%accents.length],
-    currency:i<10?'coins':'diamonds',price:i<10?90+i*65:18+(i-10)*7,
+    currency:'coins',price:i<2?0:90+i*65,retired:i===9,
     range:32+i*2,push:385+i*10,pull:153+i*7
   })),
   ...effectNames.map((name,i)=>({
     id:i===0?'comet':'effect-'+i,name,type:'effect',design:i,accent:accents[(i+3)%accents.length],
-    currency:i<10?'coins':'diamonds',price:i===0?150:i<10?110+i*53:13+(i-10)*7
+    currency:'coins',price:i<2?0:110+i*53,retired:i===9
   }))
 ]
 const diamondPacks=[{id:'diamonds-small',amount:10,price:150},{id:'diamonds-medium',amount:30,price:420},{id:'diamonds-large',amount:75,price:950}]
 function ownedStyle(type,style,gear=[],legacyPack=false){
   if(legacyPack&&['prism','gold'].includes(style))return style
-  return gear.includes(style)&&catalog.some(item=>item.type===type&&item.id===style)?style:'classic'
+  return catalog.some(item=>item.type===type&&item.id===style&&(!item.price||gear.includes(style)))?style:'classic'
 }
 function shipMagnet(style){
   return catalog.find(item=>item.type==='ship'&&item.id===style)||starterMagnet

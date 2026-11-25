@@ -102,7 +102,7 @@ function guestProfile(data){
 }
 function checkName(username,key){
   if(!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{2,19}$/.test(username))
-    throw new Error('Use 3–20 letters, numbers, spaces, dashes, or underscores.')
+    throw new Error('Use 3â€“20 letters, numbers, spaces, dashes, or underscores.')
   const name=username.toLowerCase()
   if(reservedNames.has(name)||(usernames.has(name)&&usernames.get(name)!==key))
     throw new Error('That player name is taken.')
@@ -126,7 +126,7 @@ async function accountAction(data,ip){
     if(now-attempts.start>=60000){attempts.start=now;attempts.count=0}
     loginLimits.set(ip,attempts)
     if(++attempts.count>12)throw new Error('Too many account attempts. Try again in a minute.')
-    if(password.length<8||password.length>128)throw new Error('Use a password with 8–128 characters.')
+    if(password.length<8||password.length>128)throw new Error('Use a password with 8â€“128 characters.')
   }
   if(action==='login'){
     const identifier=(email||username).toLowerCase()
@@ -158,7 +158,7 @@ function redeem(data){
   const key=identity(data.profile)
   const account=profiles.get(key)
   const pack=diamondPacks.find(item=>item.id===data.gear)
-  const item=catalog.find(item=>item.price&&item.id===data.gear)
+  const item=catalog.find(item=>item.price&&!item.retired&&item.id===data.gear)
   if(!item&&!pack)throw new Error('Item unavailable.')
   if(item&&account.gear?.includes(item.id))return profileState(key)
   refreshCoins(account)
@@ -484,7 +484,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arena-shop-upgrades',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'arena-shop-coin-catalog',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

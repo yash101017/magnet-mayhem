@@ -160,7 +160,7 @@ function renderHud(){
   write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
     String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
   $('game-root').dataset.match=String(!menu)
-  write('home-player',username|| (profileError?'Play offline while reconnecting':'Loading player…'))
+  write('home-player',username|| (profileError?'Play offline while reconnecting':'Loading playerâ€¦'))
   $('home-view').hidden=!menu
   $('match-view').hidden=menu
   const solo=game.mode==='practice'||game.mode==='circuit'
@@ -173,7 +173,7 @@ function renderHud(){
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)
   const clockText=Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0')
-  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teams…':'Finding opponent…'):
+  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teamsâ€¦':'Finding opponentâ€¦'):
     game.phase==='serve'?(game.extra?'Sudden death':'Get ready'):
     game.phase==='goal'?cachedStatus||'Goal':
     solo?(cachedStatus||activeField(game).name):
@@ -185,7 +185,7 @@ function renderHud(){
   const ping=$('ping-display')
   ping.hidden=!online.connection||!online.matchId
   const freshPing=pingMs!==null&&performance.now()-pingUpdated<4500
-  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping —')
+  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping â€”')
   ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
   $('overlay').hidden=!overlay
   $('match-stage').dataset.overlay=String(overlay)
@@ -198,14 +198,14 @@ function renderHud(){
   }else if(game.phase==='over'){
     let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
       war?(game.winner===ownTeam?'Your team wins!':'Other team wins'):game.winner===seat?'You win!':'Opponent wins'
-    let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
+    let message=solo?game.elapsed.toFixed(1)+' seconds Â· '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' â€“ ')
     if(online.state?.result?.coins){
       const change=online.state.result.coins
-      message+=' · '+(change>0?'+':'')+change+' Arena Coins'
+      message+=' Â· '+(change>0?'+':'')+change+' Arena Coins'
     }
-    if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
-    if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
-    if(ownsPack&&game.winner===ownTeam)message+=' · Founders'
+    if(online.state?.result?.reason==='forfeit')message+=' Â· Opponent disconnected'
+    if(online.state?.result?.delta)message+=' Â· '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
+    if(ownsPack&&game.winner===ownTeam)message+=' Â· Founders'
     const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
     showOverlay(title,message,replay,true)
   }
@@ -572,7 +572,7 @@ async function refreshProfile(){
   return profileRequest
 }
 function updateAccountCard(){
-  write('account-summary',username||'Connecting to your profile…')
+  write('account-summary',username||'Connecting to your profileâ€¦')
   write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
   $('rename-account').disabled=!username
   $('register-account').hidden=Boolean(username&&!guestMode)
@@ -674,7 +674,7 @@ async function connect(action){
   if(!username)await refreshProfile()
   if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
   online.connecting=true
-  write('room-message','Connecting…')
+  write('room-message','Connectingâ€¦')
   try{
     const result=await api('/room',{action,profile,field:currentField,look:{ship:shipStyle,goal:cosmetic},code:$('room-input').value.trim().toUpperCase()})
     setProfile(result.profile)
@@ -687,7 +687,7 @@ async function connect(action){
     $('field-picker').disabled=true
     write('room-code',result.code||'')
     $('copy').hidden=!result.code
-    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teams…':'Looking for an opponent…')
+    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teamsâ€¦':'Looking for an opponentâ€¦')
     openMatchStream()
     await syncOnline(true)
   }catch(error){write('room-message',error.message)}
@@ -764,7 +764,7 @@ function applyOnlineState(state){
     if(online.rematch&&state.queued){
       online.matchId=null
       online.rematch=false
-      write('room-message',online.war?'Finding teams…':'Looking for a rival…')
+      write('room-message',online.war?'Finding teamsâ€¦':'Looking for a rivalâ€¦')
     }
     return
   }
@@ -785,7 +785,7 @@ function applyOnlineState(state){
   if(online.rematch&&state.queued){
     online.matchId=null
     online.rematch=false
-    write('room-message',online.war?'Finding teams…':'Looking for a rival…')
+    write('room-message',online.war?'Finding teamsâ€¦':'Looking for a rivalâ€¦')
   }
 }
 async function syncOnline(urgent=false){
@@ -874,7 +874,7 @@ function updateShop(){
   const list=$('shop-items')
   list.replaceChildren()
   const entries=shopPage==='diamonds'?diamondPacks:
-    [...catalog,...(ownsPack?legacyGear:[])].filter(item=>item.type===shopPage)
+    [...catalog,...(ownsPack?legacyGear:[])].filter(item=>item.type===shopPage&&(!item.retired||itemOwned(item)))
   for(const item of entries){
     const button=document.createElement('button')
     button.className='market-item'
@@ -894,7 +894,7 @@ function updateShop(){
     }else{
       name.textContent=item.name
       const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
-      detail.textContent=equipped?'Equipped':itemOwned(item)?'Owned':item.price+' '+item.currency
+      detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
       if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,-.34,2.1)
       else drawEffect(g,item.id,70,39,.35)
     }
@@ -917,9 +917,9 @@ function updateShop(){
   const currency=item.currency||'coins'
   const stats=shipMagnet(item.id)
   write('preview-name',exchange?'Exchange for '+item.amount+' diamonds':item.name)
-  write('preview-stats',item.type==='ship'?stats.range+' range · '+stats.push+' push · '+stats.pull+' pull':
+  write('preview-stats',item.type==='ship'?stats.range+' range Â· '+stats.push+' push Â· '+stats.pull+' pull':
     exchange?'Use diamonds to unlock ships and goal effects.':'Plays after a goal.')
-  write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' · '+item.price+' '+currency)
+  write('shop-action',equipped?'Equipped':owned?'Equip':(exchange?'Exchange':'Unlock')+' Â· '+item.price+' '+currency)
   $('shop-action').disabled=shopBusy||equipped||!owned&&(!username||(currency==='coins'?coins:diamonds)<item.price)
   const g=$('preview').getContext('2d'), run=++previewRun
   if(item.type==='effect'){
