@@ -10,7 +10,16 @@ const starterMagnet={range:28,push:370,pull:145}
 const shipNames=['Ice Ship','Sparrow','Manta','Sidewinder','Copperhead','Stingray','Ghostfin','Riptide','Kestrel','Starling','Obsidian','Wraith','Valkyrie','Nightfall','Pulsar','Vortex','Solaris','Monarch','Zenith','Singularity']
 const effectNames=['Comet Burst','Roseflare','Ion Rain','Solar Pop','Frost Crown','Ember Trail','Pixel Storm','Mint Rings','Tidal Bloom','Moonfall','Star Shower','Prismatic Wave','Copper Sparks','Aurora','Supernova','Crystal Halo','Phantom Mist','Gravity Well','Cosmic Bloom','Nova Crown']
 const accents=['#8ef0ff','#ff92c0','#ab9aff','#ffd17e','#a0f4c5','#ff927e','#8cafff','#e4afff','#fff18b','#b5edff']
+const trails=[
+  {id:'classic',name:'Slipstream',type:'trail',pattern:'ribbon'},
+  {id:'trail-ion',name:'Ion Sparks',type:'trail',pattern:'sparks',accent:'#74f5ff',currency:'coins',price:75},
+  {id:'trail-twin',name:'Twin Plasma',type:'trail',pattern:'twin',accent:'#ff81de',currency:'coins',price:150},
+  {id:'trail-comet',name:'Solar Comet',type:'trail',pattern:'comet',accent:'#ffbc60',currency:'coins',price:250},
+  {id:'trail-rings',name:'Gravity Rings',type:'trail',pattern:'rings',accent:'#c4a0ff',currency:'coins',price:375},
+  {id:'trail-prism',name:'Prism Wave',type:'trail',pattern:'prism',accent:'#83ffd9',currency:'coins',price:525}
+]
 const catalog=[
+  ...trails,
   {id:'classic',name:'Standard',type:'ship',accent:'#67f7ff',...starterMagnet},
   {id:'classic',name:'Classic Burst',type:'effect',accent:'#fff1a0'},
   ...shipNames.map((name,i)=>({
@@ -26,7 +35,7 @@ const catalog=[
 const coinExchange={diamonds:10,coins:150,maxPacks:7}
 const diamondPacks=[{id:'diamonds-small',amount:10,price:10*coinExchange.coins/coinExchange.diamonds},{id:'diamonds-medium',amount:30,price:30*coinExchange.coins/coinExchange.diamonds},{id:'diamonds-large',amount:75,price:75*coinExchange.coins/coinExchange.diamonds}]
 function ownedStyle(type,style,gear=[],legacyPack=false){
-  if(legacyPack&&['prism','gold'].includes(style))return style
+  if(legacyPack&&type!=='trail'&&['prism','gold'].includes(style))return style
   return catalog.some(item=>item.type===type&&item.id===style&&(!item.price||gear.includes(style)))?style:'classic'
 }
 function shipMagnet(style){
@@ -555,7 +564,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   }
 }
 
-const api={W,H,wall,cornerRadius,goal,range,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,equipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
+const api={W,H,wall,cornerRadius,goal,range,catalog,trails,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,equipMagnet,fields,difficulties,botRivals,stepSeconds,createGame,activeField,warTeamSize,teamOf,step,steerPlayer,magnet,distance,separate,clamp}
 if(typeof module!=='undefined')module.exports=api
 else globalThis.MagnetEngine=api
 

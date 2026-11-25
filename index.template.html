@@ -140,10 +140,12 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 #shop-dialog header h2{font-size:clamp(1.4rem,5vw,2rem);letter-spacing:-.045em}
 .market-wallet{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 18px}
 .market-wallet b{border-radius:999px;padding:6px 11px;background:#372c34;color:#ffda8d;font-size:.83rem}
-.market-wallet b+b{background:#25355e;color:#b9eaff}
-.market-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:5px;background:#0d1530;border-radius:14px}
+.market-wallet .diamond-wallet{background:#25355e;color:#b9eaff}
+.market-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:5px;background:#0d1530;border-radius:14px}
 .market-nav button{background:transparent;border-color:transparent;border-radius:10px;padding:7px 3px}
 .market-nav button[aria-pressed=true]{background:#a8f1ee;color:#122839}
+.gem-icon{display:inline-block;width:1.25em;height:1.25em;aspect-ratio:1;border:0;background:none;vertical-align:-.26em;border-radius:0;touch-action:auto;margin-right:.18em}
+.pack-mark.gem-icon{width:34px;height:34px;flex:none}
 #shop-heading{margin:16px 0 2px;font-size:1.15rem}
 #shop-description,#preview-stats{color:#bfcae8;margin:3px 0 12px;font-size:.86rem}
 .market-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
@@ -182,11 +184,11 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
       <button id="home-play" class="primary"><span>Play Online</span><small>Ranked or with friends</small></button>
       <button id="home-war"><span>War Zone</span><small>5 vs 5 · Automatic teams</small></button>
       <button id="home-practice"><span>Free Practice</span><small>Play at your own pace</small></button>
-      <button id="shop"><span>Shop</span><small>Ships and celebrations</small></button>
+      <button id="shop"><span>Shop</span><small>Ships, effects and trails</small></button>
     </div>
   </div>
   <div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
-  <button id="featured-pack" class="featured"><span class="pack-mark" aria-hidden="true">◆</span><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
+  <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
 </section>
 <section id="match-view" hidden>
 <div class="match-nav"><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
@@ -242,10 +244,11 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 
 <dialog id="shop-dialog" aria-labelledby="shop-title">
 <header><h2 id="shop-title">Arena Shop</h2><button data-close="shop-dialog">Close</button></header>
-<div class="market-wallet"><b id="shop-coins">0 coins</b><b id="shop-diamonds">0 diamonds</b></div>
+<div class="market-wallet"><b id="shop-coins">0 coins</b><b class="diamond-wallet"><canvas class="gem-icon" data-diamond width="64" height="64" aria-hidden="true"></canvas><span id="shop-diamonds">0 diamonds</span></b></div>
 <nav class="market-nav" aria-label="Shop pages">
   <button type="button" data-market="ship" aria-pressed="true">Ships</button>
   <button type="button" data-market="effect" aria-pressed="false">Effects</button>
+  <button type="button" data-market="trail" aria-pressed="false">Trails</button>
   <button type="button" data-market="diamonds" aria-pressed="false">Diamonds</button>
 </nav>
 <h3 id="shop-heading">Ships</h3>
@@ -261,10 +264,10 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 
 
 <dialog id="coin-offer" aria-labelledby="coin-offer-title">
-  <header><h2 id="coin-offer-title">Exchange diamonds</h2></header>
+  <header><h2 id="coin-offer-title"><canvas class="gem-icon" data-diamond width="64" height="64" aria-hidden="true"></canvas>Exchange diamonds</h2></header>
   <p id="coin-offer-text"></p>
   <p id="coin-offer-status" role="status"></p>
-  <p id="coin-offer-pack" hidden><strong>20 diamonds · $2.99</strong> <small>Preview price</small></p>
+  <p id="coin-offer-pack" hidden><strong><canvas class="gem-icon" data-diamond width="64" height="64" aria-hidden="true"></canvas>20 diamonds · $2.99</strong> <small>Preview price</small></p>
   <div class="row">
     <button id="coin-offer-no" type="button" autofocus>No</button>
     <button id="coin-offer-yes" type="button" class="primary">Yes, exchange</button>

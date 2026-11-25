@@ -1,5 +1,5 @@
 'use strict'
-const {W,H,wall,cornerRadius,goal,catalog,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
+const {W,H,wall,cornerRadius,goal,catalog,trails,diamondPacks,coinExchange,ownedStyle,shipMagnet,botLoadout,fields,createGame,activeField,distance,step,stepSeconds,steerPlayer,separate,clamp,teamOf}=MagnetEngine
 const $=id=>document.getElementById(id)
 const canvas=$('field'),ctx=canvas.getContext('2d')
 const held=new Set()
@@ -9,11 +9,13 @@ let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSe
 let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
-let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null
-let cosmetic='classic', shipStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
+let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let goalArt=null
+let shipTracks=[]
+const trailStyles=new Map(trails.map(item=>[item.id,item]))
 let backdrop=null, backdropKey=null, localPose=null
 let matchSocket=null, streamReady=false, streamRetry=0, streamFailures=0
 let pingMs=null, pingUpdated=0, lastPing=0, pingSerial=0, pingProbe=null
@@ -74,11 +76,13 @@ function clearPlayState(){
   snapshotArrival=0
   cachedStatus=''
   goalArt=null
+  shipTracks=[]
 }
 function setMenu(){
   practicing=false
   practiceShip=null
   practiceEffect=null
+  practiceTrail=null
   practiceBank=0
   clearPlayState()
   menu=true
@@ -86,12 +90,13 @@ function setMenu(){
   cachedStatus='First to 3'
   renderHud()
 }
-function startPractice(style=shipStyle,effect=cosmetic){
+function startPractice(style=shipStyle,effect=cosmetic,trail=trailStyle){
   unlockSound()
   clearPlayState()
   practicing=true
   practiceShip=style
   practiceEffect=effect
+  practiceTrail=trail
   practiceBank=0
   menu=false
   game=createGame({mode:'bot',difficulty:'training',field:currentField,
@@ -100,7 +105,7 @@ function startPractice(style=shipStyle,effect=cosmetic){
   renderHud()
 }
 function goReplay(){
-  if(practicing){startPractice(practiceShip,practiceEffect);return}
+  if(practicing){startPractice(practiceShip,practiceEffect,practiceTrail);return}
   if(menu){openLobby();return}
   if(online.connection){
     online.rematch=true
@@ -422,6 +427,64 @@ function arenaBackdrop(field){
   backdropKey=field.name
   return backdrop
 }
+function paintTrail(g,style,points,now,color,scale=1){
+  const hue=style.accent||color
+  const pattern=style.pattern
+  g.save()
+  g.lineCap='round'
+  for(let i=1;i<points.length;i++){
+    const a=points[i-1],b=points[i]
+    const life=Math.max(0,1-(now-b.time)/.32)
+    if(!life)continue
+    const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy)||1
+    const nx=-dy/length,ny=dx/length
+    const strokePart=(offset,width,tint)=>{
+      g.strokeStyle=tint
+      g.lineWidth=width*scale
+      g.beginPath()
+      g.moveTo(a.x+nx*offset,a.y+ny*offset)
+      g.lineTo(b.x+nx*offset,b.y+ny*offset)
+      g.stroke()
+    }
+    g.globalAlpha=life*.78
+    if(pattern==='twin'){
+      strokePart(-3*scale,2,hue)
+      strokePart(3*scale,2,'#a491ff')
+    }else if(pattern==='rings'&&i%3===0){
+      g.strokeStyle=hue
+      g.lineWidth=1.3*scale
+      g.beginPath();g.arc(b.x,b.y,(3+life*5)*scale,0,Math.PI*2);g.stroke()
+    }else if(pattern==='sparks'&&i%2===0){
+      const spread=(i%4===0?1:-1)*4*scale
+      strokePart(spread,2,hue)
+    }else if(pattern==='prism'){
+      strokePart(Math.sin(i*.45)*3*scale,2.8,'hsl('+((b.time*400)%360)+' 100% 72%)')
+    }else if(pattern==='comet'){
+      g.globalAlpha=life*.23
+      strokePart(0,9,hue)
+      g.globalAlpha=life*.75
+      strokePart(0,3.7,'#fff0b5')
+    }else if(pattern==='ribbon'){
+      strokePart(0,3.5*life,hue)
+    }
+  }
+  g.restore()
+}
+function drawShipTrails(count,now){
+  if(menu||game.phase!=='play'){shipTracks=[];return}
+  for(let seat=0;seat<count;seat++){
+    const ship=pos[seat]
+    let track=shipTracks[seat]??=[]
+    const last=track.at(-1)
+    const gap=last?distance(last,ship):0
+    if(gap>75){track=[];shipTracks[seat]=track}
+    if(!track.length||gap>=2.5&&now-last.time>=.013)track.push({x:ship.x,y:ship.y,time:now})
+    while(track.length>1&&(now-track[0].time>.34||track.length>24))track.shift()
+    const selected=online.state?.looks?.[seat]?.trail||
+      (seat===online.seat?(practicing?practiceTrail:trailStyle):'classic')
+    paintTrail(ctx,trailStyles.get(selected)||trails[0],track,now,game.craft[seat].color)
+  }
+}
 function draw(dt){
   ctx.setTransform(2,0,0,2,0,0)
   ctx.clearRect(0,0,W,H)
@@ -469,7 +532,9 @@ function draw(dt){
   ctx.globalAlpha=1
   game.trail.forEach((point,i)=>{ctx.globalAlpha=i*.035;disc(point.x,point.y,3+i*.38,'#f9dc79')})
   ctx.globalAlpha=1
-  for(let seat=0;seat<(solo?1:game.craft.length);seat++){
+  const visibleShips=solo?1:game.craft.length
+  drawShipTrails(visibleShips,performance.now()/1000)
+  for(let seat=0;seat<visibleShips;seat++){
     const ship=pos[seat], shipColor=game.craft[seat].color
     const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
@@ -638,6 +703,7 @@ function applyProfile(data){
     ownsPack=false
     cosmetic='classic'
     shipStyle='classic'
+    trailStyle='classic'
     guestMode=true
     accountEmail=null
     saved('profile','')
@@ -657,6 +723,7 @@ function applyProfile(data){
   ownsPack=data.ownsPack
   cosmetic=safeCosmetic('effect',saved('cosmetic'))
   shipStyle=safeCosmetic('ship',saved('ship-style'))
+  trailStyle=safeCosmetic('trail',saved('trail-style'))
   write('rating',username?'Rating '+data.rating:'')
   updateShop()
 }
@@ -790,7 +857,7 @@ async function connect(action){
   online.connecting=true
   write('room-message','Connectingâ€¦')
   try{
-    const result=await api('/room',{action,profile,field:currentField,look:{ship:shipStyle,goal:cosmetic},code:$('room-input').value.trim().toUpperCase()})
+    const result=await api('/room',{action,profile,field:currentField,look:{ship:shipStyle,goal:cosmetic,trail:trailStyle},code:$('room-input').value.trim().toUpperCase()})
     setProfile(result.profile)
     clearPlayState()
     online.connection=result
@@ -808,7 +875,7 @@ async function connect(action){
   finally{online.connecting=false}
 }
 function matchInput(){
-  return {action:'sync',token:online.connection.token,input:inputState(),look:online.rematch?{ship:shipStyle,goal:cosmetic}:undefined,rematch:online.rematch}
+  return {action:'sync',token:online.connection.token,input:inputState(),look:online.rematch?{ship:shipStyle,goal:cosmetic,trail:trailStyle}:undefined,rematch:online.rematch}
 }
 function closeMatchStream(){
   const old=matchSocket
@@ -1032,7 +1099,7 @@ function gearCard(item,run){
   const ship=item.type==='ship'
   const active=selectedPreview?.id===item.id
   const owned=itemOwned(item)
-  const equipped=(ship?shipStyle:cosmetic)===item.id
+  const equipped=(ship?shipStyle:item.type==='trail'?trailStyle:cosmetic)===item.id
   const card=document.createElement('div')
   card.className='market-item market-ship-card'
   card.dataset.selected=String(active)
@@ -1049,7 +1116,13 @@ function gearCard(item,run){
   function paint(angle){
     g.clearRect(0,0,240,240)
     if(ship)drawShip(g,120,120,item.accent,item.id,angle,7.8)
-    else drawEffectArt(g,item.id,120,120,228,angle)
+    else if(item.type==='effect')drawEffectArt(g,item.id,120,120,228,angle)
+    else{
+      const head=105+68*Math.sin(angle*5)
+      const points=Array.from({length:24},(_,i)=>({x:head-75+i*3.2,y:124+13*Math.sin(i*.18+angle*5),time:i/50}))
+      paintTrail(g,item,points,.48,item.accent||'#67f7ff',2.3)
+      drawShip(g,points.at(-1).x,points.at(-1).y,'#a5f3ff',shipStyle,angle*2,2.05)
+    }
   }
   paint(ship?0:.46)
   if(active){
@@ -1067,7 +1140,7 @@ function gearCard(item,run){
   detail.textContent=equipped?'Equipped':owned?'Owned':item.price+' coins'
   const stats=document.createElement('small')
   const {range,push,pull}=shipMagnet(item.id)
-  stats.textContent=ship?'Range '+range+' · Push '+push+' · Pull '+pull:'Goal celebration'
+  stats.textContent=ship?'Range '+range+' · Push '+push+' · Pull '+pull:item.type==='trail'?'Ship trail':'Goal celebration'
   select.append(art,name,detail,stats)
   const action=document.createElement('button')
   action.type='button'
@@ -1106,7 +1179,7 @@ function tryGear(item){
     resetOnline()
     api('/room',{action:'leave',token}).catch(()=>{})
   }
-  startPractice(item.type==='ship'?item.id:shipStyle,item.type==='effect'?item.id:cosmetic)
+  startPractice(item.type==='ship'?item.id:shipStyle,item.type==='effect'?item.id:cosmetic,item.type==='trail'?item.id:trailStyle)
 }
 let exchangeOffer=null
 function offerCoins(item){
@@ -1151,21 +1224,42 @@ $('coin-offer-yes').addEventListener('click',async()=>{
     updateShop()
   }
 })
+function paintDiamond(g,x,y,size){
+  g.save()
+  g.translate(x-size/2,y-size/2)
+  g.scale(size/64,size/64)
+  const facet=(color,points)=>{
+    g.fillStyle=color
+    g.beginPath()
+    points.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y))
+    g.closePath()
+    g.fill()
+  }
+  facet('#1e72c3',[[6,20],[17,8],[47,8],[58,20],[32,58]])
+  facet('#9df9ff',[[6,20],[17,8],[23,20]])
+  facet('#ddfdff',[[17,8],[47,8],[41,20],[23,20]])
+  facet('#70dcff',[[47,8],[58,20],[41,20]])
+  facet('#4fb9fb',[[6,20],[23,20],[32,58]])
+  facet('#92efff',[[23,20],[41,20],[32,58]])
+  facet('#2d8ee3',[[41,20],[58,20],[32,58]])
+  facet('#fff',[[20,10],[23,17],[30,20],[23,22],[20,29],[17,22],[10,20],[17,17]])
+  g.restore()
+}
 function drawDiamond(g,amount){
-  g.fillStyle=amount>30?'#d7aaff':'#91f0ff'
-  g.beginPath()
-  g.moveTo(70,13);g.lineTo(95,30);g.lineTo(70,65);g.lineTo(45,30);g.closePath();g.fill()
-  g.fillStyle='#496aab'
-  g.beginPath()
-  g.moveTo(45,30);g.lineTo(95,30);g.lineTo(70,65);g.closePath();g.fill()
+  if(amount>10)paintDiamond(g,48,41,34)
+  if(amount>30)paintDiamond(g,92,41,34)
+  paintDiamond(g,70,39,amount>30?58:52)
+}
+for(const icon of document.querySelectorAll('[data-diamond]')){
+  paintDiamond(icon.getContext('2d'),icon.width/2,icon.height/2,icon.width)
 }
 function setShopPage(page){
   shopPage=page
   selectedPreview=null
   for(const tab of document.querySelectorAll('[data-market]'))tab.setAttribute('aria-pressed',String(tab.dataset.market===page))
-  write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':'Diamond exchange')
+  write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':page==='trail'?'Ship trails':'Diamond exchange')
   write('shop-description',page==='ship'?'Compare magnet range and push and pull power.':
-    page==='effect'?'Preview the celebration that plays when you score.':'Trade Arena Coins for diamonds.')
+    page==='effect'?'Preview the celebration that plays when you score.':page==='trail'?'Preview the streak your ship leaves as it moves.':'Trade Arena Coins for diamonds.')
   write('shop-message','')
   updateShop()
 }
@@ -1182,7 +1276,8 @@ async function shopAction(item){
   if(!item||shopBusy)return
   if(item.type&&itemOwned(item)){
     if(item.type==='ship'){shipStyle=item.id;saved('ship-style',shipStyle)}
-    else{cosmetic=item.id;saved('cosmetic',cosmetic)}
+    else if(item.type==='effect'){cosmetic=item.id;saved('cosmetic',cosmetic)}
+    else{trailStyle=item.id;saved('trail-style',trailStyle)}
     write('shop-message',item.name+' equipped for your next match.')
     updateShop()
     return
