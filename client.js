@@ -1019,9 +1019,15 @@ function offerCoins(item){
   exchangeOffer={packs,profile}
   write('coin-offer-text','Trade '+cost+' diamonds for '+amount+' Arena Coins?')
   write('coin-offer-status',diamonds<cost?'You have '+diamonds+' diamonds.':'')
+  $('coin-offer-yes').hidden=diamonds<cost
   $('coin-offer-yes').disabled=diamonds<cost
+  $('coin-offer-pack').hidden=diamonds>=cost
+  $('coin-offer-more').hidden=diamonds>=cost
   showDialog('coin-offer')
 }
+$('coin-offer-more').addEventListener('click',()=>{
+  write('coin-offer-status','Diamond checkout is coming soon. Prices may change before launch.')
+})
 $('coin-offer-no').addEventListener('click',()=>closeDialog('coin-offer'))
 $('coin-offer').addEventListener('close',()=>{
   exchangeOffer=null
