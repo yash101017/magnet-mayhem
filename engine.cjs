@@ -15,7 +15,7 @@ const catalog=[
   {id:'classic',name:'Classic Burst',type:'effect',accent:'#fff1a0'},
   ...shipNames.map((name,i)=>({
     id:i===0?'ice':'ship-'+i,name,type:'ship',design:i,accent:accents[i%accents.length],
-    currency:'coins',price:i<2?0:90+i*65,retired:i===9,
+    currency:'coins',price:50*(i<9?i+1:i),retired:i===9,
     range:32+i*2,push:385+i*10,pull:153+i*7
   })),
   ...effectNames.map((name,i)=>({

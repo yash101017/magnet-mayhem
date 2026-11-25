@@ -149,7 +149,8 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 .market-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
 .market-item{min-width:0;min-height:110px;padding:6px;display:grid;justify-items:center;align-content:start;gap:4px;background:radial-gradient(ellipse at 50% 24%,#354774,#1a2546 65%);border:1px solid #42547f;border-radius:12px}
 .market-item[aria-pressed=true]{border-color:#a8f1ee;background:#304462}
-.market-item canvas{width:min(100%,140px);height:auto}
+.market-item canvas{width:min(100%,140px);height:auto;aspect-ratio:auto;border:0;border-radius:0;background:none}
+.market-item canvas.market-ship-art{width:min(100%,116px);aspect-ratio:1/1}
 .market-item strong{font-size:.85rem;line-height:1.2;overflow-wrap:anywhere}
 .market-item small{font-size:.73rem;color:#cddcff;line-height:1.2}
 .market-preview{margin:12px 0;background:#202e51;border:1px solid #6681ac;border-radius:14px;padding:12px;display:grid;gap:8px}
@@ -271,7 +272,7 @@ const catalog=[
   {id:'classic',name:'Classic Burst',type:'effect',accent:'#fff1a0'},
   ...shipNames.map((name,i)=>({
     id:i===0?'ice':'ship-'+i,name,type:'ship',design:i,accent:accents[i%accents.length],
-    currency:'coins',price:i<2?0:90+i*65,retired:i===9,
+    currency:'coins',price:50*(i<9?i+1:i),retired:i===9,
     range:32+i*2,push:385+i*10,pull:153+i*7
   })),
   ...effectNames.map((name,i)=>({
@@ -1025,6 +1026,7 @@ function ring(x,y,r,color,width=1,g=ctx){
 function disc(x,y,r,color,g=ctx){
   g.fillStyle=color;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()
 }
+const shipArtTileSize=234
 const shipArtSlots=new Map(catalog.filter(item=>item.type==='ship'&&!item.retired)
   .map((item,index)=>[item.id,index]))
 shipArtSlots.set('ship-9',10)
@@ -1045,7 +1047,7 @@ function drawShip(g,x,y,color,style,rotation=0,scale=1){
     const index=shipArtSlots.get(style)??0
     g.save()
     g.rotate(rotation)
-    g.drawImage(shipArt,index%5*120,Math.floor(index/5)*120,120,120,-13,-13,26,26)
+    g.drawImage(shipArt,index%5*shipArtTileSize,Math.floor(index/5)*shipArtTileSize,shipArtTileSize,shipArtTileSize,-13,-13,26,26)
     g.restore()
   }
   g.strokeStyle=color
@@ -1666,7 +1668,14 @@ function updateShop(){
     button.disabled=shopBusy
     button.setAttribute('aria-pressed',String(selectedPreview?.id===item.id))
     const art=document.createElement('canvas')
-    art.width=140;art.height=78
+    if(item.type==='ship'){
+      art.className='market-ship-art'
+      art.width=240
+      art.height=240
+    }else{
+      art.width=140
+      art.height=78
+    }
     art.setAttribute('aria-hidden','true')
     const g=art.getContext('2d')
     const name=document.createElement('strong')
@@ -1679,7 +1688,7 @@ function updateShop(){
       name.textContent=item.name
       const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
       detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
-      if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,0,2.35)
+      if(item.type==='ship')drawShip(g,120,120,item.accent,item.id,0,7.8)
       else drawEffect(g,item.id,70,39,.35)
     }
     button.append(art,name,detail)

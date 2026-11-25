@@ -233,6 +233,7 @@ function ring(x,y,r,color,width=1,g=ctx){
 function disc(x,y,r,color,g=ctx){
   g.fillStyle=color;g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill()
 }
+const shipArtTileSize=234
 const shipArtSlots=new Map(catalog.filter(item=>item.type==='ship'&&!item.retired)
   .map((item,index)=>[item.id,index]))
 shipArtSlots.set('ship-9',10)
@@ -253,7 +254,7 @@ function drawShip(g,x,y,color,style,rotation=0,scale=1){
     const index=shipArtSlots.get(style)??0
     g.save()
     g.rotate(rotation)
-    g.drawImage(shipArt,index%5*120,Math.floor(index/5)*120,120,120,-13,-13,26,26)
+    g.drawImage(shipArt,index%5*shipArtTileSize,Math.floor(index/5)*shipArtTileSize,shipArtTileSize,shipArtTileSize,-13,-13,26,26)
     g.restore()
   }
   g.strokeStyle=color
@@ -874,7 +875,14 @@ function updateShop(){
     button.disabled=shopBusy
     button.setAttribute('aria-pressed',String(selectedPreview?.id===item.id))
     const art=document.createElement('canvas')
-    art.width=140;art.height=78
+    if(item.type==='ship'){
+      art.className='market-ship-art'
+      art.width=240
+      art.height=240
+    }else{
+      art.width=140
+      art.height=78
+    }
     art.setAttribute('aria-hidden','true')
     const g=art.getContext('2d')
     const name=document.createElement('strong')
@@ -887,7 +895,7 @@ function updateShop(){
       name.textContent=item.name
       const equipped=item.id===(item.type==='ship'?shipStyle:cosmetic)
       detail.textContent=equipped?'Equipped':itemOwned(item)?item.price?'Owned':'Starter':item.price+' '+item.currency
-      if(item.type==='ship')drawShip(g,70,39,item.accent,item.id,0,2.35)
+      if(item.type==='ship')drawShip(g,120,120,item.accent,item.id,0,7.8)
       else drawEffect(g,item.id,70,39,.35)
     }
     button.append(art,name,detail)
