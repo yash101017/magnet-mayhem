@@ -184,7 +184,7 @@ function guestProfile(data){
   const known=existingKey(data.profile)||existingKey(data.device)
   if(known&&deletingProfiles.has(known))throw new Error('Account deletion is in progress.')
   if(known&&profiles.get(known).username)return profileState(known)
-  const key=known||(legalKey(data.device)?data.device:id())
+  const key=known||(legalKey(data.device)&&!profileRevisions.has(data.device)?data.device:id())
   if(!known&&profiles.size>=50000)throw new Error('Guest profile limit reached.')
   let username
   do{username='Racer '+randomBytes(3).toString('hex').toUpperCase()}
@@ -261,7 +261,7 @@ async function accountAction(data,ip){
   }
   if(action==='bootstrap'){
     if(!existingKey(data.profile)&&!existingKey(data.device)&&data.ageConfirmed!==true)
-      throw new Error('Confirm that you are 13 or older to create a profile.')
+      return {ageRequired:true}
     return guestProfile(data)
   }
   const username=typeof data.username==='string'?data.username.trim().replace(/ +/g,' '):''
@@ -730,7 +730,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-launch-safety',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-profile-recovery',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

@@ -27,6 +27,7 @@ function saved(key,value){
   }catch{return null}
 }
 profile=saved('profile')
+let ageConfirmed=saved('online-age-confirmed')==='yes', pendingOnlineAction=null
 const pagePath=location.pathname||'/'
 let soundEnabled=true
 function updateSoundControl(){
@@ -795,16 +796,22 @@ function guestDevice(){
   return id
 }
 async function refreshProfile(){
-  if(location.protocol==='file:'||pagePath==='/account-deletion'&&!profile||!profile&&saved('online-age-confirmed')!=='yes')return
+  if(location.protocol==='file:'||pagePath==='/account-deletion'&&!profile||!profile&&!ageConfirmed)return
   if(profileRequest)return profileRequest
   profileRequest=(async()=>{
     try{
       const savedGuest=saved('guest-profile')
-      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:guestDevice(),ageConfirmed:saved('online-age-confirmed')==='yes'})
+      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:ageConfirmed?guestDevice():saved('guest-device'),ageConfirmed})
       profileError=''
+      if(data.ageRequired){
+        saved('guest-profile','')
+        saved('guest-device','')
+        applyProfile({})
+        return
+      }
       applyProfile(data)
-    }catch{
-      profileError='Could not connect to your player profile. Try again in a moment.'
+    }catch(error){
+      profileError=error.message||'Could not connect to your player profile.'
     }finally{profileRequest=null}
   })()
   return profileRequest
@@ -879,7 +886,7 @@ $('account-form').addEventListener('submit',async event=>{
     if(accountMode==='register'&&!username)await refreshProfile()
     if(accountMode==='register'&&!username)throw new Error(profileError||'Player profile unavailable.')
     const action=accountMode
-    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile,ageConfirmed:saved('online-age-confirmed')==='yes'}))
+    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile,ageConfirmed}))
     $('password').value=''
     openAccount()
     write('account-message',action==='register'?'Account saved. Your progress is still here.':action==='rename'?'Player name updated.':'Signed in.')
@@ -909,14 +916,16 @@ function resetOnline(){
   setMenu()
 }
 async function connect(action){
-  if(!profile&&saved('online-age-confirmed')!=='yes'){
+  unlockSound()
+  if(online.connecting||online.connection)return
+  if(!username)await refreshProfile()
+  if(!profile&&!ageConfirmed){
+    pendingOnlineAction=action
     closeDialog('lobby-dialog')
     showDialog('age-gate')
     return
   }
-  unlockSound()
   if(online.connecting||online.connection)return
-  if(!username)await refreshProfile()
   if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
   online.connecting=true
   write('room-message','Connectingâ€¦')
@@ -1356,10 +1365,14 @@ async function shopAction(item){
   finally{shopBusy=false;updateShop()}
 }
 $('age-confirm').addEventListener('click',async()=>{
+  ageConfirmed=true
   saved('online-age-confirmed','yes')
   closeDialog('age-gate')
   await refreshProfile()
-  openLobby()
+  await openLobby()
+  const action=pendingOnlineAction
+  pendingOnlineAction=null
+  if(action&&username)await connect(action)
 })
 $('delete-account').addEventListener('click',()=>{
   $('delete-password-label').hidden=guestMode
@@ -1378,6 +1391,7 @@ $('confirm-delete').addEventListener('click',async()=>{
     if(profileRequest)await profileRequest
     await api('/account',{action:'delete',profile,password:$('delete-password').value})
     for(const key of ['guest-device','guest-profile','online-age-confirmed','ship-style','cosmetic','trail-style'])saved(key,'')
+    ageConfirmed=false
     applyProfile({})
     $('delete-password').value=''
     closeDialog('delete-dialog')
