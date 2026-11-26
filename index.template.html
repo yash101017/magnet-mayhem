@@ -187,7 +187,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
       <button id="shop"><span>Shop</span><small>Ships, effects and trails</small></button>
     </div>
   </div>
-  <div class="row"><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></div><div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
+  <div class="row"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></div><div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
   <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
 </section>
 <section id="match-view" hidden>
@@ -267,11 +267,11 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <header><h2 id="coin-offer-title"><canvas class="gem-icon" data-diamond width="64" height="64" aria-hidden="true"></canvas>Exchange diamonds</h2></header>
   <p id="coin-offer-text"></p>
   <p id="coin-offer-status" role="status"></p>
-  <p id="coin-offer-pack" hidden><strong><canvas class="gem-icon" data-diamond width="64" height="64" aria-hidden="true"></canvas>20 diamonds · $2.99</strong> <small>Preview price</small></p>
+
   <div class="row">
     <button id="coin-offer-no" type="button" autofocus>No</button>
     <button id="coin-offer-yes" type="button" class="primary">Yes, exchange</button>
-    <button id="coin-offer-more" type="button" class="primary" hidden>Buy more diamonds</button>
+
   </div>
 </dialog>
 
@@ -298,13 +298,24 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <p>PuckVolt stores a browser and profile identifier, player name, match ratings, balances and unlocks to run the game and restore progress. If you register with email, we store the email and a salted password hash. Your player name is shown to others during matches. The service uses connection information to run matches and limit abuse.</p>
 <p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made.</p>
 <p>Profile data is kept while the account exists. Delete it from Account, or visit the <a href="/account-deletion">account deletion page</a>. An opaque deletion marker prevents stale writes from restoring the profile. Aggregated tactic statistics remain after deletion. Hosting providers may retain operational logs and backups under their own retention schedules.</p>
-<p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements.</p>
+<p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements. For privacy questions, use <a href="/support">PuckVolt Support</a>. Support requests include the email and message you supply so the operator can respond.</p>
 </dialog>
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report name in a match to flag an abusive name.</p>
 <p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Completed wins can award coins and eligible matches may change ratings. Losses and entry do not cost coins.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. Paid checkout is unavailable. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
+</dialog>
+
+<dialog id="support-dialog" aria-labelledby="support-title">
+<header><h2 id="support-title">PuckVolt Support</h2><button data-close="support-dialog">Close</button></header>
+<p>Use this form for account help, privacy questions, or to report a problem. Do not include passwords or payment details.</p>
+<form id="support-form">
+  <label for="support-email">Reply email</label><input id="support-email" type="email" autocomplete="email" required maxlength="254" style="width:100%">
+  <label for="support-message">Message</label><textarea id="support-message" minlength="10" maxlength="1500" required rows="5" style="width:100%"></textarea>
+  <button id="send-support">Send request</button>
+</form>
+<p id="support-status" role="status"></p>
 </dialog>
 
 <script>

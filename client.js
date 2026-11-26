@@ -1262,16 +1262,11 @@ function offerCoins(item){
   const amount=packs*coinExchange.coins
   exchangeOffer={packs,profile}
   write('coin-offer-text','Trade '+cost+' diamonds for '+amount+' Arena Coins?')
-  write('coin-offer-status',diamonds<cost?'You have '+diamonds+' diamonds.':'')
+  write('coin-offer-status',diamonds<cost?'You have '+diamonds+' diamonds. Earn coins in matches or claim the hourly refill.':'')
   $('coin-offer-yes').hidden=diamonds<cost
   $('coin-offer-yes').disabled=diamonds<cost
-  $('coin-offer-pack').hidden=diamonds>=cost
-  $('coin-offer-more').hidden=diamonds>=cost
   showDialog('coin-offer')
 }
-$('coin-offer-more').addEventListener('click',()=>{
-  write('coin-offer-status','Diamond checkout is coming soon. Prices may change before launch.')
-})
 $('coin-offer-no').addEventListener('click',()=>closeDialog('coin-offer'))
 $('coin-offer').addEventListener('close',()=>{
   exchangeOffer=null
@@ -1421,9 +1416,20 @@ $('send-report').addEventListener('click',async()=>{
   }catch(error){write('report-message',error.message)}
   finally{$('send-report').disabled=false}
 })
+$('support-form').addEventListener('submit',async(event)=>{
+  event.preventDefault()
+  $('send-support').disabled=true
+  try{
+    const result=await api('/support',{email:$('support-email').value,message:$('support-message').value})
+    write('support-status','Request received. Reference '+result.reference)
+    $('support-message').value=''
+  }catch(error){write('support-status',error.message)}
+  finally{$('send-support').disabled=false}
+})
 setMenu()
 requestAnimationFrame(frame)
 if(pagePath==='/privacy')showDialog('privacy-dialog')
+else if(pagePath==='/support')showDialog('support-dialog')
 else if(pagePath==='/terms')showDialog('terms-dialog')
 else if(pagePath==='/account-deletion'){
   openAccount()

@@ -192,7 +192,23 @@ function guestProfile(data){
   return saveAccount(key,{rating:1000,skill:1000,coins:refillAmount,nextCoinsAt:Date.now()+refillPeriod,
     ownsPack:false,...profiles.get(key),username,credentials:null})
 }
+let moderatedNames=new Set()
+let moderationRefresh=0
+async function refreshModeration(){
+  if(!durableProfiles||Date.now()<moderationRefresh)return
+  moderationRefresh=Date.now()+60000
+  try{
+    const response=await fetch(new URL('/moderation',learningUrl),{headers:{Authorization:'Bearer '+learningToken},signal:AbortSignal.timeout(4500)})
+    if(!response.ok)throw new Error('Moderation store returned '+response.status)
+    moderatedNames=new Set(await response.json())
+  }catch(error){console.error('Name moderation:',error.message)}
+}
+function nameBlocked(name){
+  const normalized=name.toLowerCase().replace(/[^a-z0-9]/g,'')
+  return moderatedNames.has(normalized)
+}
 function checkName(username,key){
+  if(nameBlocked(username))throw new Error('Choose a different player name.')
   if(!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{2,19}$/.test(username))
     throw new Error('Use 3â€“20 letters, numbers, spaces, dashes, or underscores.')
   const name=username.toLowerCase()
@@ -245,6 +261,24 @@ async function reportName(data){
     }else fs.appendFileSync(dataPath+'.reports',JSON.stringify(report)+'\n')
   }catch(error){player.reportedMatch=null;throw error}
   return {reported:true}
+}
+const supportAttempts=new Map()
+async function submitSupport(data,ip){
+  const now=Date.now()
+  if(now-(supportAttempts.get(ip)||0)<30000)throw new Error('Please wait before sending another request.')
+  const email=typeof data.email==='string'?data.email.trim():''
+  const message=typeof data.message==='string'?data.message.trim():''
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||message.length<10||message.length>1500)
+    throw new Error('Enter a valid email and a message of 10 to 1,500 characters.')
+  supportAttempts.set(ip,now)
+  const ticket={id:id(),email,message,created:now}
+  if(durableProfiles){
+    const response=await fetch(new URL('/support',learningUrl),{method:'POST',
+      headers:{Authorization:'Bearer '+learningToken,'Content-Type':'application/json'},
+      body:JSON.stringify(ticket),signal:AbortSignal.timeout(4500)})
+    if(!response.ok)throw new Error('Support is temporarily unavailable.')
+  }else fs.appendFileSync(dataPath+'.support',JSON.stringify(ticket)+'\n')
+  return {reference:ticket.id}
 }
 function allowAccountAttempt(ip){
   const now=Date.now()
@@ -563,6 +597,7 @@ function playerLook(profile,look){
   }
 }
 function makeSession(profile,look){
+  if(nameBlocked(profiles.get(profile).username))throw new Error('Update your player name in Account before playing online.')
   if(identities.has(profile))throw new Error('This profile is already in an online session. Use a private window for a second player.')
   if(sessions.size>=500)throw new Error('All online slots are occupied.')
   const player={token:id(),profile,seen:Date.now(),input:getInput(null),look:playerLook(profile,look)}
@@ -635,10 +670,12 @@ function tick(){
     }
   }
   for(const [ip,value] of addressLimits)if(now-value.start>5000)addressLimits.delete(ip)
+  for(const [ip,time] of supportAttempts)if(now-time>30000)supportAttempts.delete(ip)
   for(const [ip,value] of loginLimits)if(now-value.start>60000)loginLimits.delete(ip)
   findPairs(now)
   findWarMatches(now)
   void syncLearning(now)
+  void refreshModeration()
   if(profileWrites.size)void flushProfiles()
   if(dirty){try{persist()}catch(error){console.error('Could not save profiles:',error.message)}}
 }
@@ -722,7 +759,7 @@ function grant(key){
 }
 async function serve(req,res){
   const route=new URL(req.url,'http://localhost').pathname
-  if(req.method==='GET'&&(['/','/account-deletion','/privacy','/terms'].includes(route))){
+  if(req.method==='GET'&&(['/','/account-deletion','/privacy','/terms','/support'].includes(route))){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
@@ -730,8 +767,8 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-profile-recovery',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
-  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-support-and-moderation',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
   const count=addressLimits.get(ip)||{start:now,count:0}
@@ -747,6 +784,7 @@ async function serve(req,res){
     }
     const data=JSON.parse(raw)
     if(!data||typeof data!=='object')throw new Error('Invalid request.')
+    if(route==='/support'){send(res,200,await submitSupport(data,ip));return}
     if(route==='/report'){send(res,200,await reportName(data));return}
     if(route==='/room'){send(res,200,roomAction(data));return}
     if(route==='/profile'){

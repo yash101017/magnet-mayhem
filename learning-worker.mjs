@@ -1,9 +1,24 @@
 export default {
   async fetch(request, env) {
     const url=new URL(request.url)
-    if (!['/learning','/profiles','/reports'].includes(url.pathname)) return new Response(null,{status:404})
+    if (!['/learning','/profiles','/reports','/support','/moderation'].includes(url.pathname)) return new Response(null,{status:404})
     if (!env.LEARNING_TOKEN || request.headers.get('Authorization') !== 'Bearer '+env.LEARNING_TOKEN) {
       return new Response(null,{status:401})
+    }
+    if(url.pathname==='/moderation'){
+      if(request.method!=='GET')return new Response(null,{status:405})
+      const {results}=await env.LEARNING.prepare("SELECT normalized FROM name_reviews WHERE decision='block'").all()
+      return Response.json(results.map(row=>row.normalized),{headers:{'Cache-Control':'no-store'}})
+    }
+    if(url.pathname==='/support'){
+      if(request.method!=='POST')return new Response(null,{status:405})
+      const row=await request.json().catch(()=>null)
+      if(!row||!/^[a-f0-9]{48}$/.test(row.id)||typeof row.email!=='string'||row.email.length>254||
+        typeof row.message!=='string'||row.message.length>1500||!Number.isSafeInteger(row.created))
+        return new Response(null,{status:400})
+      await env.LEARNING.prepare('INSERT OR IGNORE INTO support_requests(id,email,message,created) VALUES(?,?,?,?)')
+        .bind(row.id,row.email,row.message,row.created).run()
+      return new Response(null,{status:204})
     }
     if(url.pathname==='/reports'){
       if(request.method!=='POST')return new Response(null,{status:405})

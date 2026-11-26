@@ -26,3 +26,11 @@ CREATE TABLE IF NOT EXISTS player_profiles (
 CREATE TABLE IF NOT EXISTS name_reports (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS name_reviews (
+  normalized TEXT PRIMARY KEY, decision TEXT NOT NULL CHECK(decision IN ('block','dismiss')),
+  reviewed_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS support_requests (
+  id TEXT PRIMARY KEY, email TEXT NOT NULL, message TEXT NOT NULL, created INTEGER NOT NULL
+);
