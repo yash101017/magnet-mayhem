@@ -797,7 +797,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-clean-player-copy',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-neutral-match-labels',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

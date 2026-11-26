@@ -181,8 +181,8 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <div class="home-panel">
     <div class="coursebar"><label for="field-picker">Arena</label><select id="field-picker" aria-label="Arena"></select></div>
     <div class="home-actions">
-      <button id="home-play" class="primary"><span>Play Online</span><small>Ranked or friends · Bots may fill</small></button>
-      <button id="home-war"><span>War Zone</span><small>5 vs 5 · Bots fill open seats</small></button>
+      <button id="home-play" class="primary"><span>Play Online</span><small>Ranked or with friends</small></button>
+      <button id="home-war"><span>War Zone</span><small>5 vs 5</small></button>
       <button id="home-practice"><span>Free Practice</span><small>Play at your own pace</small></button>
       <button id="shop"><span>Shop</span><small>Ships, effects and trails</small></button>
     </div>
@@ -191,7 +191,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
 </section>
 <section id="match-view" hidden>
-<div class="match-nav"><span id="bot-indicator" hidden></span><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<div class="match-nav"><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
 <div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
 <div class="match-stage" id="match-stage">
 <div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
@@ -211,7 +211,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <dialog id="lobby-dialog">
   <header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
   <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
-  <p>Wins award <strong>30 Arena Coins</strong>. Entry is free. Bots may fill open seats.</p>
+  <p>Wins award <strong>30 Arena Coins</strong>. Entry is free.</p>
   <div class="lobby-actions">
     <button id="ranked" class="primary"><span>Ranked Game</span><small>Skill-based 1v1 · Equal magnet stats</small></button>
     <button id="warzone"><span>War Zone</span><small>5 vs 5 · Equal magnet stats</small></button>
@@ -1221,11 +1221,8 @@ function renderHud(){
   const war=game.mode==='warzone'
   const ownTeam=teamOf(game,seat)
   const bots=online.state?.bots||[]
-  const botCount=bots.filter(Boolean).length
-  $('bot-indicator').hidden=!botCount
-  write('bot-indicator',botCount+' '+(botCount===1?'bot':'bots')+' in match')
   $('report-name').hidden=!online.matchId||!bots.some((bot,seat)=>!bot&&seat!==online.seat)
-  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names?.map((name,seat)=>bots[seat]?name+' (Bot)':name)||[username||'YOU',practicing?'Practice Bot':'']
+  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names||[username||'YOU',practicing?'Practice':'']
   write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)

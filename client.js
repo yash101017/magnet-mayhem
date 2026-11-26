@@ -281,11 +281,8 @@ function renderHud(){
   const war=game.mode==='warzone'
   const ownTeam=teamOf(game,seat)
   const bots=online.state?.bots||[]
-  const botCount=bots.filter(Boolean).length
-  $('bot-indicator').hidden=!botCount
-  write('bot-indicator',botCount+' '+(botCount===1?'bot':'bots')+' in match')
   $('report-name').hidden=!online.matchId||!bots.some((bot,seat)=>!bot&&seat!==online.seat)
-  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names?.map((name,seat)=>bots[seat]?name+' (Bot)':name)||[username||'YOU',practicing?'Practice Bot':'']
+  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names||[username||'YOU',practicing?'Practice':'']
   write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)
