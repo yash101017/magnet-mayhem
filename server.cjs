@@ -210,7 +210,7 @@ function nameBlocked(name){
 function checkName(username,key){
   if(nameBlocked(username))throw new Error('Choose a different player name.')
   if(!/^[a-zA-Z0-9][a-zA-Z0-9 _-]{2,19}$/.test(username))
-    throw new Error('Use 3â€“20 letters, numbers, spaces, dashes, or underscores.')
+    throw new Error('Use 3–20 letters, numbers, spaces, dashes, or underscores.')
   const name=username.toLowerCase()
   if(reservedNames.has(name)||(usernames.has(name)&&usernames.get(name)!==key))
     throw new Error('That player name is taken.')
@@ -334,7 +334,7 @@ async function accountAction(data,ip){
   }
   if(action!=='guest'){
     if(!allowAccountAttempt(ip))throw new Error('Too many account attempts. Try again in a minute.')
-    if(password.length<8||password.length>128)throw new Error('Use a password with 8â€“128 characters.')
+    if(password.length<8||password.length>128)throw new Error('Use a password with 8–128 characters.')
   }
   if(action==='login'){
     const identifier=(email||username).toLowerCase()
@@ -797,7 +797,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-privacy-controls',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-clean-player-copy',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

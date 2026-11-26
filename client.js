@@ -256,6 +256,7 @@ function showOverlay(title,message,replay,offer){
   previousOverlay=key
   $('title').textContent=title
   $('message').textContent=message
+  $('message').hidden=!message
   $('replay').hidden=!replay
   $('replay').disabled=Boolean(online.rematch)
   $('replay').textContent=replay||''
@@ -271,7 +272,7 @@ function renderHud(){
   write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
     String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
   $('game-root').dataset.match=String(!menu)
-  write('home-player',username|| (profileError?'Play offline while reconnecting':'Loading playerâ€¦'))
+  write('home-player',username||(profileError?'Profile unavailable':!profile&&!ageConfirmed?'Online play is 13+':'Loading profile…'))
   $('home-view').hidden=!menu
   $('match-view').hidden=menu
   const solo=game.mode==='practice'||game.mode==='circuit'
@@ -289,7 +290,7 @@ function renderHud(){
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)
   const clockText=Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0')
-  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teamsâ€¦':'Finding opponentâ€¦'):
+  write('status',menu?'First to 3':online.connection&&!online.matchId?(online.war?'Finding teams…':'Looking for an opponent…'):
     game.phase==='serve'?(game.extra?'Sudden death':'Get ready'):
     game.phase==='goal'?cachedStatus||'Goal':
     solo?(cachedStatus||activeField(game).name):
@@ -301,27 +302,26 @@ function renderHud(){
   const ping=$('ping-display')
   ping.hidden=!online.connection||!online.matchId
   const freshPing=pingMs!==null&&performance.now()-pingUpdated<4500
-  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping â€”')
+  write('ping-display',freshPing?'Ping '+Math.round(pingMs)+' ms':'Ping —')
   ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
   $('overlay').hidden=!overlay
   $('match-stage').dataset.overlay=String(overlay)
   $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
   if(menu){
-    showOverlay(fields[currentField].name,'Drag to steer. Pull the puck close, then push it into the opposing goal.','Open Online',false)
+    showOverlay(fields[currentField].name,'','Play online',false)
   }else if(online.connection&&!online.matchId){
-    showOverlay(online.war?'Finding teams':online.ranked?'Finding a rival':'Waiting for friend',
+    showOverlay(online.war?'Finding teams':online.ranked?'Looking for an opponent':'Waiting for friend',
       online.war?'Building two teams of five. Your match will start in a few seconds.':online.ranked?'Your match should start in a few seconds.':'Open Online to see your room code.',null,false)
   }else if(game.phase==='over'){
     let title=solo?(game.mode==='circuit'?'Circuit cleared!':'Course cleared!'):
       war?(game.winner===ownTeam?'Your team wins!':'Other team wins'):game.winner===seat?'You win!':'Opponent wins'
-    let message=solo?game.elapsed.toFixed(1)+' seconds Â· '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' â€“ ')
+    let message=solo?game.elapsed.toFixed(1)+' seconds · '+(game.mode==='circuit'?'4 courses':activeField(game).name):game.score.join(' – ')
     if(online.state?.result?.coins){
       const change=online.state.result.coins
-      message+=' Â· '+(change>0?'+':'')+change+' Arena Coins'
+      message+=' · '+(change>0?'+':'')+change+' Arena Coins'
     }
-    if(online.state?.result?.reason==='forfeit')message+=' Â· Opponent disconnected'
-    if(online.state?.result?.delta)message+=' Â· '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
-    if(ownsPack&&game.winner===ownTeam)message+=' Â· Founders'
+    if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
+    if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
     const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
     showOverlay(title,message,replay,true)
   }
@@ -738,14 +738,15 @@ updateButtonSide()
 for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>closeDialog(button.dataset.close))
 
 async function api(route,data){
-  if(location.protocol==='file:')throw new Error('Launch the multiplayer download to connect to the game server.')
+  if(location.protocol==='file:')throw new Error('Online play is unavailable in this copy.')
   const controller=new AbortController()
   const timer=setTimeout(()=>controller.abort(),3600)
   try{
     const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal})
-    const body=await response.json()
+      .catch(()=>{throw new Error('Connection lost. Try again.')})
+    const body=await response.json().catch(()=>{throw new Error('PuckVolt is temporarily unavailable. Try again.')})
     if(body.error)throw new Error(body.error)
-    if(!response.ok)throw new Error('Server unavailable.')
+    if(!response.ok)throw new Error('PuckVolt is temporarily unavailable. Try again.')
     return body
   }finally{clearTimeout(timer)}
 }
@@ -820,7 +821,7 @@ async function refreshProfile(){
   return profileRequest
 }
 function updateAccountCard(){
-  write('account-summary',username||'Connecting to your profileâ€¦')
+  write('account-summary',username||'Connecting to your profile…')
   write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
   $('delete-account').disabled=!username
   $('clear-blocks').hidden=!blockedCount
@@ -930,9 +931,9 @@ async function connect(action){
     return
   }
   if(online.connecting||online.connection)return
-  if(!username){write('room-message',profileError||'Connect to a player profile first.');return}
+  if(!username){write('room-message',profileError||'Open Account to continue.');return}
   online.connecting=true
-  write('room-message','Connectingâ€¦')
+  write('room-message','Connecting…')
   try{
     const result=await api('/room',{action,profile,field:currentField,look:{ship:shipStyle,goal:cosmetic,trail:trailStyle},code:$('room-input').value.trim().toUpperCase()})
     setProfile(result.profile)
@@ -945,7 +946,7 @@ async function connect(action){
     $('field-picker').disabled=true
     write('room-code',result.code||'')
     $('copy').hidden=!result.code
-    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teamsâ€¦':'Looking for an opponentâ€¦')
+    write('room-message',result.code?'Share this code with your friend.':online.war?'Finding teams…':'Looking for an opponent…')
     openMatchStream()
     await syncOnline(true)
   }catch(error){write('room-message',error.message)}
@@ -1022,7 +1023,7 @@ function applyOnlineState(state){
     if(online.rematch&&state.queued){
       online.matchId=null
       online.rematch=false
-      write('room-message',online.war?'Finding teamsâ€¦':'Looking for a rivalâ€¦')
+      write('room-message',online.war?'Finding teams…':'Looking for an opponent…')
     }
     return
   }
@@ -1043,7 +1044,7 @@ function applyOnlineState(state){
   if(online.rematch&&state.queued){
     online.matchId=null
     online.rematch=false
-    write('room-message',online.war?'Finding teamsâ€¦':'Looking for a rivalâ€¦')
+    write('room-message',online.war?'Finding teams…':'Looking for an opponent…')
   }
 }
 async function syncOnline(urgent=false){
@@ -1260,7 +1261,7 @@ function tryGear(item){
 }
 let exchangeOffer=null
 function offerCoins(item){
-  if(!username){write('shop-message','Connect to your player profile to buy gear.');return}
+  if(!username){write('shop-message','Open Account to buy gear.');return}
   const packs=Math.ceil((item.price-coins)/coinExchange.coins)
   const cost=packs*coinExchange.diamonds
   const amount=packs*coinExchange.coins

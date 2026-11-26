@@ -21,7 +21,7 @@ button{cursor:pointer;touch-action:manipulation}button:hover:not(:disabled){filt
 canvas{display:block;width:100%;aspect-ratio:360/520;touch-action:none;border:1px solid #465681;border-radius:14px;background:#111831}
 .overlay{position:absolute;inset:0;display:grid;place-content:center;text-align:center;padding:16px;background:#080d21cb;border-radius:14px}.overlay p{max-width:28ch}.overlay button+button{margin-top:7px}.overlay[hidden],[hidden]{display:none!important}
 .primary{background:var(--cyan);color:#0c1426;border-color:var(--cyan);font-weight:850}.controls{margin-top:8px}.controls button{flex:1;font-weight:850}.controls button:first-child{color:var(--cyan)}.controls button:last-child{color:var(--pink)}
-.hint{font-size:13px;color:var(--muted);text-align:center;margin:6px 0 0}.subtle{background:transparent;font-size:.84rem}
+.subtle{background:transparent;font-size:.84rem}
 dialog{color:var(--paper);width:min(420px,calc(100% - 24px));border:1px solid var(--line);border-radius:15px;background:#141d37;padding:18px;max-height:90dvh}dialog::backdrop{background:#050712bb}
 dialog header h2{font-size:1.6rem;margin-right:auto}dialog .row{margin:8px 0;flex-wrap:wrap}.row>*{flex:1}dialog input{width:110px}#room-input{text-transform:uppercase}#score0,#score1{overflow-wrap:anywhere}#status{min-width:3.4em}
 .card{padding:10px;margin:9px 0;background:#20284a;border:1px solid #44527a;border-radius:10px}.card p{margin:4px 0}.card strong{display:block}
@@ -70,11 +70,11 @@ html[data-game-locked="true"] main,#match-view,#match-view *{-webkit-touch-callo
 .match-stage .magnet-buttons button[aria-disabled="true"]{opacity:.52}
 .match-stage .magnet-buttons button:active{transform:scale(.94)}
 .match-nav{gap:7px}
-.touch-hint{display:none}
+
 @media(min-width:600px){main[data-match="true"]{width:min(100%,590px)}}
 @media(pointer:coarse){
-  .keyboard-hint{display:none}
-  .touch-hint{display:inline}
+
+
   main[data-match="true"] .game-header{flex-wrap:nowrap;gap:6px;padding-block:6px}
   main[data-match="true"] .game-header h1{flex:1 0 0;font-size:.79rem;line-height:1.05}
   main[data-match="true"] .game-header button{font-size:.74rem;padding-inline:6px}
@@ -83,8 +83,8 @@ html[data-game-locked="true"] main,#match-view,#match-view *{-webkit-touch-callo
 }
 @media(max-width:540px) and (orientation:portrait){
   main[data-match="true"]{padding-inline:max(8px,env(safe-area-inset-left)) max(8px,env(safe-area-inset-right))}
-  .keyboard-hint{display:none}
-  .touch-hint{display:inline}
+
+
 }
 
 :root{--ink:#0a0f22;--deck:#111a34;--line:#354970;--mint:#91ffe0;--rose:#ff78b5;--muted:#9eafcc}
@@ -199,13 +199,12 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <canvas id="field" width="720" height="1040" aria-label="PuckVolt arena"></canvas>
 <div class="overlay" id="overlay">
 <h2 id="title">Own the puck</h2>
-<p id="message">Drag to steer. Pull the puck close, then aim a push into the opposing goal.</p>
+<p id="message" hidden></p>
 <button class="primary" id="replay">Open Online</button>
-<button class="subtle" id="result-shop" hidden>Browse goal effects</button>
+<button class="subtle" id="result-shop" hidden>Shop</button>
 </div>
 </div>
 </div>
-<p class="hint" id="hint"><span class="keyboard-hint">WASD / arrows · Q pull · E push</span><span class="touch-hint">Swipe to steer · Tap Push or Pull in range</span></p>
 </section>
 </main>
 
@@ -305,7 +304,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
 <p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Completed wins can award coins and eligible matches may change ratings. Losses and entry do not cost coins.</p>
-<p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. Paid checkout is unavailable. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
+<p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>
 
 <dialog id="support-dialog" aria-labelledby="support-title">
