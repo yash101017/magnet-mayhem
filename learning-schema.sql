@@ -16,3 +16,9 @@ BEGIN
     games=CASE WHEN games>=80 THEN games*.95 ELSE games END + 1,
     reward=CASE WHEN games>=80 THEN reward*.95 ELSE reward END + NEW.reward;
 END;
+
+CREATE TABLE IF NOT EXISTS player_profiles (
+  id TEXT PRIMARY KEY,
+  revision INTEGER NOT NULL,
+  profile TEXT NOT NULL CHECK(json_valid(profile))
+);

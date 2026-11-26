@@ -23,6 +23,13 @@ const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json'
 const profiles=new Map()
 const learningKey='_botLearningV1'
 let learning={}
+const rankedMagnet={range:48,push:465,pull:210}
+const durableProfiles=process.env.MAGNET_DURABLE_PROFILES==='1'
+const profileRevisionKey='_profileRevisionsV1'
+const profileRevisions=new Map()
+const storedProfiles=new Map()
+const profileWrites=new Map()
+let profileFlush=null,profileStatus=durableProfiles?'connecting':'local'
 const pendingLearningKey='_botLearningPendingV1'
 const learningUrl=process.env.MAGNET_LEARNING_URL
 const learningToken=process.env.MAGNET_LEARNING_TOKEN
@@ -31,7 +38,12 @@ try{
   const saved=JSON.parse(fs.readFileSync(dataPath,'utf8'))
   learning=saved[learningKey]||{}
   pendingLearning=saved[pendingLearningKey]||[]
-  for(const [key,value] of Object.entries(saved))if(key!==learningKey&&key!==pendingLearningKey)profiles.set(key,value)
+  for(const [key,value] of Object.entries(saved)){
+    if(!/^[a-f0-9]{48}$/.test(key))continue
+    profiles.set(key,value)
+    const revision=saved[profileRevisionKey]?.[key]
+    if(Number.isSafeInteger(revision))profileRevisions.set(key,revision)
+  }
 }catch(error){if(error.code!=='ENOENT')throw error}
 const usernames=new Map()
 for(const [key,account] of profiles)if(account.username)usernames.set(account.username.toLowerCase(),key)
@@ -49,10 +61,79 @@ const warLineup=[2,1,3,0,4]
 let lastTick=Date.now(), lastMaintenance=0, dirty=false
 
 function persist(){
+  if(durableProfiles)for(const [id,account] of profiles){
+    const profile=JSON.stringify(account)
+    if((profileWrites.get(id)?.profile??storedProfiles.get(id))===profile)continue
+    const revision=Math.max(Date.now()*1024,(profileRevisions.get(id)||0)+1)
+    profileRevisions.set(id,revision)
+    profileWrites.set(id,{id,revision,profile})
+  }
   const scratch=dataPath+'.tmp'
-  fs.writeFileSync(scratch,JSON.stringify({...Object.fromEntries(profiles),[learningKey]:learning,[pendingLearningKey]:pendingLearning}))
+  fs.writeFileSync(scratch,JSON.stringify({...Object.fromEntries(profiles),[learningKey]:learning,[pendingLearningKey]:pendingLearning,[profileRevisionKey]:Object.fromEntries(profileRevisions)}))
   fs.renameSync(scratch,dataPath)
   dirty=false
+  if(durableProfiles)void flushProfiles()
+}
+async function profileRequest(method,cursor='',rows){
+  const endpoint=new URL('/profiles',learningUrl)
+  if(cursor)endpoint.searchParams.set('after',cursor)
+  const response=await fetch(endpoint,{method,headers:{Authorization:'Bearer '+learningToken,
+    'Content-Type':'application/json'},body:rows&&JSON.stringify(rows),signal:AbortSignal.timeout(5500)})
+  if(!response.ok)throw new Error('Player storage returned '+response.status)
+  return method==='GET'?response.json():null
+}
+async function restoreProfiles(){
+  if(!durableProfiles)return
+  if(!learningUrl||!learningToken)throw new Error('Player storage credentials are missing')
+  const remote=[]
+  let cursor=''
+  while(true){
+    const rows=await profileRequest('GET',cursor)
+    if(!Array.isArray(rows))throw new Error('Invalid player storage response')
+    remote.push(...rows)
+    if(rows.length<100)break
+    cursor=rows.at(-1).id
+  }
+  for(const {id,revision,profile} of remote){
+    storedProfiles.set(id,profile)
+    if(revision<(profileRevisions.get(id)||0))continue
+    profiles.set(id,JSON.parse(profile))
+    profileRevisions.set(id,revision)
+  }
+  usernames.clear()
+  emails.clear()
+  for(const [id,account] of profiles){
+    if(account.username)usernames.set(account.username.toLowerCase(),id)
+    if(account.email)emails.set(account.email,id)
+  }
+  profileStatus='durable'
+  persist()
+  if(!await flushProfiles())throw new Error('Player storage could not migrate local accounts')
+  console.log('Player storage connected. Restored '+remote.length+' accounts.')
+}
+function flushProfiles(){
+  if(!durableProfiles)return Promise.resolve(true)
+  if(profileFlush)return profileFlush
+  if(!profileWrites.size)return Promise.resolve(true)
+  profileFlush=(async()=>{
+    try{
+      while(profileWrites.size){
+        const rows=[...profileWrites.values()].slice(0,25)
+        await profileRequest('POST','',rows)
+        for(const row of rows){
+          storedProfiles.set(row.id,row.profile)
+          if(profileWrites.get(row.id)===row)profileWrites.delete(row.id)
+        }
+      }
+      profileStatus='durable'
+      return true
+    }catch(error){
+      profileStatus='retrying'
+      console.error('Player storage sync:',error.message)
+      return false
+    }finally{profileFlush=null}
+  })()
+  return profileFlush
 }
 function existingKey(value){
   return legalKey(value)&&profiles.has(value)?value:null
@@ -294,10 +375,12 @@ function startMatch(players,field,kind,rival=null){
 }
 function registerMatch(match){
   matches.set(match.id,match)
+  match.game.fairMagnets=['ranked','fallback','warzone'].includes(match.kind)
+  if(match.game.fairMagnets)for(const ship of match.game.craft)ship.magnet={...rankedMagnet}
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
     player.match=match
-    equipMagnet(match.game.craft[seat],player.look.ship)
+    if(!match.game.fairMagnets)equipMagnet(match.game.craft[seat],player.look.ship)
     player.seat=seat
     player.input=getInput(null)
     player.rematch=false
@@ -408,7 +491,7 @@ function remove(player){
       match.names[seat]=freeBotName(match.names)
       const bot=warBot(match.skill,[...match.players.map(participant=>participant?.look),...match.game.bots.map(config=>config?.look)],match.field)
       match.game.bots[seat]=bot
-      equipMagnet(match.game.craft[seat],bot.look.ship)
+      if(!match.game.fairMagnets)equipMagnet(match.game.craft[seat],bot.look.ship)
       match.game.botThink[seat]=0
       if(!match.players.some(Boolean))matches.delete(match.id)
     }else finish(match,1-player.seat,'forfeit')
@@ -501,6 +584,7 @@ function tick(){
   findPairs(now)
   findWarMatches(now)
   void syncLearning(now)
+  if(profileWrites.size)void flushProfiles()
   if(dirty){try{persist()}catch(error){console.error('Could not save profiles:',error.message)}}
 }
 setInterval(tick,12).unref()
@@ -596,7 +680,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'bot-goal-defense',stream:streamAvailable,learning:learningStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'durable-profiles-fair-ranked',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
@@ -619,8 +703,19 @@ async function serve(req,res){
       send(res,200,key?profileState(key):{profile:null,username:null})
       return
     }
-    if(route==='/redeem'){send(res,200,redeem(data));return}
-    if(route==='/account'){send(res,200,await accountAction(data,ip));return}
+    if(route==='/redeem'){
+      if(profileStatus==='retrying'&&!await flushProfiles()){send(res,503,{error:'Your wallet is syncing. Try again shortly.'});return}
+      const result=redeem(data)
+      await flushProfiles()
+      send(res,200,result)
+      return
+    }
+    if(route==='/account'){
+      const result=await accountAction(data,ip)
+      await flushProfiles()
+      send(res,200,result)
+      return
+    }
 
   }catch(error){send(res,error.statusCode||400,{error:error.message||'Request failed.'})}
 }
@@ -628,11 +723,22 @@ const port=Number(process.env.PORT||8792)
 if(require.main===module){
   const server=http.createServer(serve)
   streamAvailable=attachMatchSockets(server,roomAction,sessions)
+  process.once('SIGTERM',()=>{
+    server.close()
+    const deadline=setTimeout(()=>process.exit(0),6000)
+    Promise.resolve().then(()=>{
+      if(dirty)persist()
+      return flushProfiles()
+    }).catch(error=>console.error('Shutdown save:',error.message)).finally(()=>{
+      clearTimeout(deadline)
+      process.exit(0)
+    })
+  })
   server.on('error',error=>{
     console.error(error.code==='EADDRINUSE'?'Port '+port+' is already in use. Try Play.cmd with a different port.':error.message)
     process.exitCode=1
   })
-  void syncLearning().then(()=>server.listen(port,process.env.HOST||'0.0.0.0',()=>{
+  void Promise.all([syncLearning(),restoreProfiles()]).then(()=>server.listen(port,process.env.HOST||'0.0.0.0',()=>{
     const url='http://localhost:'+server.address().port+'/'
     console.log('Magnet Mayhem is running at '+url)
     console.log('Leave this window open while you play.')
@@ -642,7 +748,10 @@ if(require.main===module){
       opener.on('error',()=>console.log('Open '+url+' in your browser.'))
       opener.unref()
     }
-  }))
+  })).catch(error=>{
+    console.error('Could not start with durable player storage:',error.message)
+    process.exitCode=1
+  })
 }
 module.exports={serve,difficultyForSkill}
 

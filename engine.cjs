@@ -281,7 +281,7 @@ function magnet(game,seat,push) {
   game.lastTouch={bot:Boolean(ai),team:teamOf(game,seat)}
   puck.vx=vx
   puck.vy=vy
-  craft.cd=ai?.recovery??.85
+  craft.cd=game.fairMagnets?.85:(ai?.recovery??.85)
   game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:stats.range})
   event(game,push?'push':'pull',seat)
   return true

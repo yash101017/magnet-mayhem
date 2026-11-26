@@ -214,8 +214,8 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
   <p>Competitive matches stake <strong>30 Arena Coins</strong>.</p>
   <div class="lobby-actions">
-    <button id="ranked" class="primary"><span>Ranked Game</span><small>Find an opponent near your rating</small></button>
-    <button id="warzone"><span>War Zone</span><small>Find a 5 vs 5 match</small></button>
+    <button id="ranked" class="primary"><span>Ranked Game</span><small>Skill-based 1v1 · Equal magnet stats</small></button>
+    <button id="warzone"><span>War Zone</span><small>5 vs 5 · Equal magnet stats</small></button>
     <button id="host"><span>Create Room</span><small>Invite a friend with a room code</small></button>
   </div>
   <form id="join" class="row join-room"><input id="room-input" maxlength="6" placeholder="ROOM CODE" aria-label="Room code" required pattern="[A-Za-z0-9]{6}"><button id="join-submit">Join Friend</button></form>
@@ -252,7 +252,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <button type="button" data-market="diamonds" aria-pressed="false">Diamonds</button>
 </nav>
 <h3 id="shop-heading">Ships</h3>
-<p id="shop-description">Compare magnet range and push and pull power.</p>
+<p id="shop-description">Ship upgrades apply in practice and private matches. Ranked and War Zone use equal magnet stats.</p>
 <section id="shop-preview" class="market-preview" hidden aria-labelledby="preview-name">
   <canvas id="preview" width="320" height="84" aria-hidden="true"></canvas>
   <div><h3 id="preview-name"></h3><p id="preview-stats"></p></div>
@@ -560,7 +560,7 @@ function magnet(game,seat,push) {
   game.lastTouch={bot:Boolean(ai),team:teamOf(game,seat)}
   puck.vx=vx
   puck.vy=vy
-  craft.cd=ai?.recovery??.85
+  craft.cd=game.fairMagnets?.85:(ai?.recovery??.85)
   game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:stats.range})
   event(game,push?'push':'pull',seat)
   return true
@@ -2207,7 +2207,7 @@ function setShopPage(page){
   selectedPreview=null
   for(const tab of document.querySelectorAll('[data-market]'))tab.setAttribute('aria-pressed',String(tab.dataset.market===page))
   write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':page==='trail'?'Ship trails':'Diamond exchange')
-  write('shop-description',page==='ship'?'Compare magnet range and push and pull power.':
+  write('shop-description',page==='ship'?'Ship upgrades apply in practice and private matches. Ranked and War Zone use equal magnet stats.':
     page==='effect'?'Preview the celebration that plays when you score.':page==='trail'?'Preview the streak your ship leaves as it moves.':'Trade Arena Coins for diamonds.')
   write('shop-message','')
   updateShop()
