@@ -438,34 +438,86 @@ function paintTrail(g,style,points,now,color,scale=1){
     if(!life)continue
     const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy)||1
     const nx=-dy/length,ny=dx/length
-    const strokePart=(offset,width,tint)=>{
+    const strokePart=(offset,width,tint,next=offset)=>{
       g.strokeStyle=tint
       g.lineWidth=width*scale
       g.beginPath()
       g.moveTo(a.x+nx*offset,a.y+ny*offset)
-      g.lineTo(b.x+nx*offset,b.y+ny*offset)
+      g.lineTo(b.x+nx*next,b.y+ny*next)
       g.stroke()
     }
+    const mark=(shape,offset,radius,tint,outline=false)=>{
+      g.save()
+      g.translate(b.x+nx*offset,b.y+ny*offset)
+      g.rotate(Math.atan2(dy,dx))
+      g.fillStyle=g.strokeStyle=tint
+      g.lineWidth=1.15*scale
+      g.beginPath()
+      const size=radius*scale
+      if(shape==='circle')g.arc(0,0,size,0,Math.PI*2)
+      else if(shape==='petal')g.ellipse(0,0,size,size*.45,.7,0,Math.PI*2)
+      else{
+        const vertices=shape==='star'?8:shape==='chevron'?3:4
+        for(let k=0;k<vertices;k++){
+          const angle=k*Math.PI*2/vertices
+          const r=shape==='star'&&k%2?size*.28:size
+          if(k)g.lineTo(Math.cos(angle)*r,Math.sin(angle)*r)
+          else g.moveTo(Math.cos(angle)*r,Math.sin(angle)*r)
+        }
+        if(shape!=='chevron')g.closePath()
+      }
+      if(outline)g.stroke()
+      else g.fill()
+      g.restore()
+    }
+    const phase=b.time*32
+    const before=a.time*32
+    const side=i%2?1:-1
+    const pulse=Math.sin(phase)
+    const beforePulse=Math.sin(before)
     g.globalAlpha=life*.78
-    if(pattern==='twin'){
-      strokePart(-3*scale,2,hue)
-      strokePart(3*scale,2,'#a491ff')
-    }else if(pattern==='rings'&&i%3===0){
-      g.strokeStyle=hue
-      g.lineWidth=1.3*scale
-      g.beginPath();g.arc(b.x,b.y,(3+life*5)*scale,0,Math.PI*2);g.stroke()
-    }else if(pattern==='sparks'&&i%2===0){
-      const spread=(i%4===0?1:-1)*4*scale
-      strokePart(spread,2,hue)
-    }else if(pattern==='prism'){
-      strokePart(Math.sin(i*.45)*3*scale,2.8,'hsl('+((b.time*400)%360)+' 100% 72%)')
-    }else if(pattern==='comet'){
-      g.globalAlpha=life*.23
-      strokePart(0,9,hue)
-      g.globalAlpha=life*.75
-      strokePart(0,3.7,'#fff0b5')
-    }else if(pattern==='ribbon'){
-      strokePart(0,3.5*life,hue)
+    switch(pattern){
+      case 'ribbon': strokePart(0,3.5*life,hue);break
+      case 'sparks': if(i%2===0)strokePart((i%4===0?1:-1)*4*scale,2,hue);break
+      case 'twin':
+        strokePart(-3*scale,2,hue);strokePart(3*scale,2,'#a491ff');break
+      case 'pixels': if(i%2===0)mark('diamond',(i%4===0?1:-1)*5*scale,3.1,hue);break
+      case 'shards': if(i%2)mark('diamond',side*(i%3+2)*scale,4.8,i%3?hue:'#fff');break
+      case 'comet':
+        g.globalAlpha=life*.23;strokePart(0,9,hue)
+        g.globalAlpha=life*.75;strokePart(0,3.7,'#fff0b5');break
+      case 'bubbles': if(i%3!==0)mark('circle',side*5*scale,2.5+i%4,hue,true);break
+      case 'chevrons': if(i%3===0)mark('chevron',0,5.5,hue,true);break
+      case 'rings': if(i%3===0)mark('circle',0,3+life*5,hue,true);break
+      case 'smoke':
+        g.globalAlpha=life*.22;mark('circle',pulse*3*scale,5+(1-life)*6,hue);break
+      case 'lightning':
+        strokePart(-side*4*scale,2,hue,side*4*scale)
+        if(i%4===0)strokePart(0,1,'#fff',side*8*scale);break
+      case 'petals': if(i%2)mark('petal',Math.sin(i*2)*8*scale,4.8,hue);break
+      case 'wave': strokePart(beforePulse*6*scale,2.8,hue,pulse*6*scale);break
+      case 'prism': strokePart(beforePulse*3*scale,2.8,'hsl('+((b.time*400)%360)+' 100% 72%)',pulse*3*scale);break
+      case 'aurora':
+        g.globalAlpha=life*.35
+        strokePart(beforePulse*5*scale,8,hue,pulse*5*scale)
+        strokePart(-beforePulse*5*scale,5,'#99a5ff',-pulse*5*scale);break
+      case 'stars':
+        g.globalAlpha=life*.28;strokePart(0,1,hue)
+        g.globalAlpha=life*.9;if(i%3===0)mark('star',pulse*7*scale,5,hue);break
+      case 'helix':
+        strokePart(beforePulse*7*scale,2.5,hue,pulse*7*scale)
+        strokePart(-beforePulse*7*scale,2.5,'#71fff2',-pulse*7*scale);break
+      case 'inferno':
+        g.globalAlpha=life*.28;strokePart(0,10,hue)
+        g.globalAlpha=life*.9;strokePart(0,2.8,'#ffe674')
+        if(i%2===0)mark('diamond',pulse*7*scale,3.7,'#ff9c4c');break
+      case 'orbit':
+        if(i%3===0)mark('circle',pulse*5*scale,6,hue,true)
+        if(i%2)mark('diamond',pulse*10*scale,2.7,'#fff');break
+      case 'nova':
+        g.globalAlpha=life*.33;strokePart(0,11,'#ae7dff')
+        g.globalAlpha=life*.93;strokePart(0,2.4,hue)
+        if(i%2===0)mark('star',pulse*8*scale,4.6,i%4?hue:'#fff');break
     }
   }
   g.restore()
@@ -1119,7 +1171,7 @@ function gearCard(item,run){
     else if(item.type==='effect')drawEffectArt(g,item.id,120,120,228,angle)
     else{
       const head=105+68*Math.sin(angle*5)
-      const points=Array.from({length:24},(_,i)=>({x:head-75+i*3.2,y:124+13*Math.sin(i*.18+angle*5),time:i/50}))
+      const points=Array.from({length:24},(_,i)=>({x:head-75+i*3.2,y:124+13*Math.sin(i*.18+angle*5),time:.19+i/80}))
       paintTrail(g,item,points,.48,item.accent||'#67f7ff',2.3)
       drawShip(g,points.at(-1).x,points.at(-1).y,'#a5f3ff',shipStyle,angle*2,2.05)
     }

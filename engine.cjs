@@ -10,14 +10,31 @@ const starterMagnet={range:28,push:370,pull:145}
 const shipNames=['Ice Ship','Sparrow','Manta','Sidewinder','Copperhead','Stingray','Ghostfin','Riptide','Kestrel','Starling','Obsidian','Wraith','Valkyrie','Nightfall','Pulsar','Vortex','Solaris','Monarch','Zenith','Singularity']
 const effectNames=['Comet Burst','Roseflare','Ion Rain','Solar Pop','Frost Crown','Ember Trail','Pixel Storm','Mint Rings','Tidal Bloom','Moonfall','Star Shower','Prismatic Wave','Copper Sparks','Aurora','Supernova','Crystal Halo','Phantom Mist','Gravity Well','Cosmic Bloom','Nova Crown']
 const accents=['#8ef0ff','#ff92c0','#ab9aff','#ffd17e','#a0f4c5','#ff927e','#8cafff','#e4afff','#fff18b','#b5edff']
-const trails=[
-  {id:'classic',name:'Slipstream',type:'trail',pattern:'ribbon'},
-  {id:'trail-ion',name:'Ion Sparks',type:'trail',pattern:'sparks',accent:'#74f5ff',currency:'coins',price:75},
-  {id:'trail-twin',name:'Twin Plasma',type:'trail',pattern:'twin',accent:'#ff81de',currency:'coins',price:150},
-  {id:'trail-comet',name:'Solar Comet',type:'trail',pattern:'comet',accent:'#ffbc60',currency:'coins',price:250},
-  {id:'trail-rings',name:'Gravity Rings',type:'trail',pattern:'rings',accent:'#c4a0ff',currency:'coins',price:375},
-  {id:'trail-prism',name:'Prism Wave',type:'trail',pattern:'prism',accent:'#83ffd9',currency:'coins',price:525}
+const trailDesigns=[
+  ['classic','Slipstream','ribbon'],
+  ['trail-ion','Ion Sparks','sparks','#74f5ff'],
+  ['trail-twin','Twin Plasma','twin','#ff81de'],
+  ['trail-pixel','Pixel Dash','pixels','#aaff74'],
+  ['trail-frost','Frost Shards','shards','#bcfaff'],
+  ['trail-comet','Solar Comet','comet','#ffbc60'],
+  ['trail-bubbles','Bubble Drift','bubbles','#69eaff'],
+  ['trail-chevron','Vector Wake','chevrons','#c3ff70'],
+  ['trail-rings','Gravity Rings','rings','#c4a0ff'],
+  ['trail-smoke','Phantom Smoke','smoke','#a995ed'],
+  ['trail-lightning','Forked Lightning','lightning','#f1f59b'],
+  ['trail-petals','Rose Petals','petals','#ff91bd'],
+  ['trail-tide','Neon Tide','wave','#5ff6dd'],
+  ['trail-prism','Prism Wave','prism','#83ffd9'],
+  ['trail-aurora','Aurora Veil','aurora','#97ffba'],
+  ['trail-stars','Constellation','stars','#ffee97'],
+  ['trail-helix','Double Helix','helix','#e3aaff'],
+  ['trail-inferno','Inferno Wake','inferno','#ff543b'],
+  ['trail-orbit','Orbital Debris','orbit','#c3d0ff'],
+  ['trail-nova','Nova Crown','nova','#ffe297']
 ]
+const trails=trailDesigns.map(([id,name,pattern,accent],index)=>({
+  id,name,pattern,accent,type:'trail',currency:'coins',price:index*50
+}))
 const catalog=[
   ...trails,
   {id:'classic',name:'Standard',type:'ship',accent:'#67f7ff',...starterMagnet},
