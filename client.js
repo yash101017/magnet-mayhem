@@ -11,6 +11,7 @@ const coinPrices={ice:90,comet:150}
 let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
 let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
+let blockedCount=0
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let goalArt=null
@@ -755,6 +756,7 @@ function applyProfile(data){
   if(!data.profile){
     profile=null
     username=null
+    blockedCount=0
     coins=0
     diamonds=0
     gear=[]
@@ -775,6 +777,7 @@ function applyProfile(data){
   if(guestMode&&username)saved('guest-profile',profile)
   else if(saved('guest-profile')===profile)saved('guest-profile','')
   if(!guestMode&&saved('guest-device')===profile)saved('guest-device','')
+  blockedCount=data.blockedCount||0
   coins=data.coins||0
   diamonds=data.diamonds||0
   refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
@@ -820,6 +823,7 @@ function updateAccountCard(){
   write('account-summary',username||'Connecting to your profileâ€¦')
   write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
   $('delete-account').disabled=!username
+  $('clear-blocks').hidden=!blockedCount
   $('rename-account').disabled=!username
   $('register-account').hidden=Boolean(username&&!guestMode)
   $('switch-account').hidden=!username||guestMode
@@ -1407,6 +1411,24 @@ $('report-name').addEventListener('click',()=>{
   }
   write('report-message','')
   showDialog('report-dialog')
+})
+$('block-player').addEventListener('click',async()=>{
+  $('block-player').disabled=true
+  try{
+    await api('/block-player',{token:online.connection?.token,seat:Number($('report-seat').value)})
+    write('report-message','Player blocked from future matches with you.')
+    await refreshProfile()
+  }catch(error){write('report-message',error.message)}
+  finally{$('block-player').disabled=false}
+})
+$('clear-blocks').addEventListener('click',async()=>{
+  $('clear-blocks').disabled=true
+  try{
+    applyProfile(await api('/account',{action:'clear-blocks',profile}))
+    updateAccountCard()
+    write('account-message','Player blocks cleared.')
+  }catch(error){write('account-message',error.message)}
+  finally{$('clear-blocks').disabled=false}
 })
 $('send-report').addEventListener('click',async()=>{
   $('send-report').disabled=true

@@ -1,4 +1,12 @@
 export default {
+  async scheduled(_event,env){
+    const cutoff=Date.now()-90*24*60*60*1000
+    await env.LEARNING.batch([
+      env.LEARNING.prepare('DELETE FROM support_requests WHERE created<?').bind(cutoff),
+      env.LEARNING.prepare('DELETE FROM name_reports WHERE created<?').bind(cutoff),
+      env.LEARNING.prepare("DELETE FROM name_reviews WHERE decision='dismiss' AND reviewed_at<?").bind(cutoff)
+    ])
+  },
   async fetch(request, env) {
     const url=new URL(request.url)
     if (!['/learning','/profiles','/reports','/support','/moderation'].includes(url.pathname)) return new Response(null,{status:404})

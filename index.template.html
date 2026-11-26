@@ -191,7 +191,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
 </section>
 <section id="match-view" hidden>
-<div class="match-nav"><span id="bot-indicator" hidden></span><button id="report-name" hidden>Report name</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<div class="match-nav"><span id="bot-indicator" hidden></span><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
 <div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
 <div class="match-stage" id="match-stage">
 <div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
@@ -227,7 +227,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <header><h2>Player profile</h2><button data-close="account-dialog">Close</button></header>
   <div class="profile-card"><span class="profile-icon" aria-hidden="true">✦</span><div><strong id="account-summary">Connecting…</strong><small id="account-kind"></small></div></div>
   <div id="account-choices" class="account-actions">
-    <button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
+    <button id="clear-blocks" type="button" hidden>Clear blocked players</button><button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
     <button id="register-account" class="primary">Save with email</button>
     <button id="login-account">Sign in to another account</button>
     <button id="switch-account" hidden>Switch to guest</button>
@@ -289,21 +289,21 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <button id="confirm-delete">Permanently delete account</button>
 </dialog>
 <dialog id="report-dialog" aria-labelledby="report-title">
-<header><h2 id="report-title">Report a player name</h2><button data-close="report-dialog">Close</button></header>
+<header><h2 id="report-title">Report or block a player</h2><button data-close="report-dialog">Close</button></header>
 <label for="report-seat">Player</label><select id="report-seat"></select>
-<p id="report-message" role="status"></p><button id="send-report">Submit report</button>
+<p id="report-message" role="status"></p><button id="send-report">Report name</button> <button id="block-player">Block future matches</button>
 </dialog>
 <dialog id="privacy-dialog" aria-labelledby="privacy-title">
 <header><h2 id="privacy-title">PuckVolt privacy notice</h2><button data-close="privacy-dialog">Close</button></header>
-<p>PuckVolt’s public operator name is <strong>Paul0017</strong>. Use <a href="/support">PuckVolt Support</a> for privacy or account questions.</p>
+<p>PuckVolt is operated by <strong>Yash Patel</strong>, also known as Paul0017. Use <a href="/support">PuckVolt Support</a> for privacy or account questions.</p>
 <p>PuckVolt stores a browser and profile identifier, player name, match ratings, balances and unlocks to run the game and restore progress. If you register with email, we store the email and a salted password hash. Your player name is shown to others during matches. The service uses connection information to run matches and limit abuse.</p>
-<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made.</p>
+<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made. A player block stores a one-way identifier to prevent future matches with that player.</p>
 <p>Profile data is kept while the account exists. Delete it from Account, or visit the <a href="/account-deletion">account deletion page</a>. An opaque deletion marker prevents stale writes from restoring the profile. Aggregated tactic statistics remain after deletion. Hosting providers may retain operational logs and backups under their own retention schedules.</p>
-<p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements. For privacy questions, use <a href="/support">PuckVolt Support</a>. Support requests include the email and message you supply so the operator can respond.</p>
+<p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements. For privacy questions, use <a href="/support">PuckVolt Support</a>. Support requests include the email and message you supply so the operator can respond. Support requests and name reports are scheduled for removal from active storage after 90 days. A name restriction can remain in effect after the original report is removed.</p>
 </dialog>
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
-<p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report name in a match to flag an abusive name.</p>
+<p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
 <p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Completed wins can award coins and eligible matches may change ratings. Losses and entry do not cost coins.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. Paid checkout is unavailable. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>

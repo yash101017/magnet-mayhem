@@ -2,7 +2,7 @@
 const http=require('node:http')
 const fs=require('node:fs')
 const path=require('node:path')
-const {randomBytes,randomInt,scrypt,timingSafeEqual}=require('node:crypto')
+const {randomBytes,randomInt,scrypt,timingSafeEqual,createHash}=require('node:crypto')
 const {promisify}=require('node:util')
 const derive=promisify(scrypt)
 const opponentNames=require('./opponent-names.cjs')
@@ -159,7 +159,7 @@ function refreshCoins(account,now=Date.now()){
 function profileState(key){
   const account=profiles.get(key)
   refreshCoins(account)
-  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,diamonds:account.diamonds??starterDiamonds,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack}
+  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,blockedCount:account.blockedPlayers?.length||0,diamonds:account.diamonds??starterDiamonds,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack}
 }
 function saveAccount(key,account){
   const prior=profiles.get(key)
@@ -243,6 +243,26 @@ async function deleteAccount(data){
     return {deleted:true}
   }finally{deletingProfiles.delete(key)}
 }
+function blockKey(profile){
+  return createHash('sha256').update(profile).digest('hex')
+}
+function mayMatch(a,b){
+  return !profiles.get(a)?.blockedPlayers?.includes(blockKey(b))&&
+    !profiles.get(b)?.blockedPlayers?.includes(blockKey(a))
+}
+function blockPlayer(data){
+  const player=sessions.get(data.token)
+  const target=Number.isInteger(data.seat)?player?.match?.players[data.seat]:null
+  if(!target||target===player)throw new Error('Choose another player in your match.')
+  const key=identity(player.profile)
+  const account=profiles.get(key)
+  const blockedPlayers=account.blockedPlayers||[]
+  const hash=blockKey(target.profile)
+  if(blockedPlayers.includes(hash))return {blocked:true}
+  if(blockedPlayers.length>=50)throw new Error('Your block list is full. Clear it from Account.')
+  saveAccount(key,{...account,blockedPlayers:[...blockedPlayers,hash]})
+  return {blocked:true}
+}
 async function reportName(data){
   const player=sessions.get(data.token)
   const match=player?.match
@@ -289,6 +309,10 @@ function allowAccountAttempt(ip){
 }
 async function accountAction(data,ip){
   const action=data.action
+  if(action==='clear-blocks'){
+    const key=identity(data.profile)
+    return saveAccount(key,{...profiles.get(key),blockedPlayers:[]})
+  }
   if(action==='delete'){
     if(!allowAccountAttempt(ip))throw new Error('Too many account attempts. Try again in a minute.')
     return deleteAccount(data)
@@ -612,7 +636,7 @@ function findPairs(now){
     const window=70+Math.floor((now-player.queuedAt)/1000)*35
     let rival=null, best=Infinity
     for(const candidate of queued.values()){
-      if(candidate===player)continue
+      if(candidate===player||!mayMatch(player.profile,candidate.profile))continue
       const gap=Math.abs(self-profiles.get(candidate.profile).rating)
       if(gap>window||gap>70+Math.floor((now-candidate.queuedAt)/1000)*35||gap>=best)continue
       rival=candidate;best=gap
@@ -643,8 +667,12 @@ function findWarMatches(now){
       return difference<=Math.min(radius(anchor),radius(player))
     })
     compatible.sort((a,b)=>Math.abs(playerSkill(a)-skill)-Math.abs(playerSkill(b)-skill)||a.queuedAt-b.queuedAt)
-    if(compatible.length<maximum&&now-anchor.queuedAt<warWaitMs)continue
-    const group=[anchor,...compatible.filter(player=>player!==anchor)].slice(0,maximum)
+    const group=[anchor]
+    for(const candidate of compatible){
+      if(group.length>=maximum)break
+      if(candidate!==anchor&&group.every(player=>mayMatch(player.profile,candidate.profile)))group.push(candidate)
+    }
+    if(group.length<maximum&&now-anchor.queuedAt<warWaitMs)continue
     startWarMatch(group)
   }
 }
@@ -687,6 +715,7 @@ function roomAction(data){
       const owner=inviteRooms.get(data.code)
       if(!owner||owner.match)throw new Error('Room unavailable. Ask your friend for a new code.')
       const profile=identity(data.profile)
+      if(!mayMatch(owner.profile,profile))throw new Error('This room is unavailable.')
       const player=makeSession(profile,data.look)
       startMatch([owner,player],owner.field,'private')
       return {profile,token:player.token,code:data.code}
@@ -725,6 +754,7 @@ function roomAction(data){
     player.rematch=true
     const rival=match.players[1-player.seat]
     if(identities.get(rival.profile)!==rival)throw new Error('Your friend has left the room.')
+    if(rival.rematch&&!mayMatch(player.profile,rival.profile))throw new Error('A rematch is unavailable.')
     if(rival.rematch){
       matches.delete(match.id)
       startMatch([rival,player],match.field,'private')
@@ -767,8 +797,8 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-operator-disclosure',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
-  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-privacy-controls',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
   const count=addressLimits.get(ip)||{start:now,count:0}
@@ -785,6 +815,7 @@ async function serve(req,res){
     const data=JSON.parse(raw)
     if(!data||typeof data!=='object')throw new Error('Invalid request.')
     if(route==='/support'){send(res,200,await submitSupport(data,ip));return}
+    if(route==='/block-player'){const result=blockPlayer(data);await flushProfiles();send(res,200,result);return}
     if(route==='/report'){send(res,200,await reportName(data));return}
     if(route==='/room'){send(res,200,roomAction(data));return}
     if(route==='/profile'){
