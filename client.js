@@ -8,10 +8,11 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
-let coins=0,diamonds=0,gear=[],refillDeadline=null,nextRefillCheck=0
+let coins=0,diamonds=0,gear=[],refillDeadline=null,diamondDeadline=null,claimBusy=false,nextProfileRetry=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
 let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let blockedCount=0
+let socialMode=null,boardOffset=0,lastPresence=0,medalQueue=[],medalMatch=null
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let goalArt=null
@@ -110,6 +111,14 @@ function startPractice(style=shipStyle,effect=cosmetic,trail=trailStyle){
 function goReplay(){
   if(practicing){startPractice(practiceShip,practiceEffect,practiceTrail);return}
   if(menu){openLobby();return}
+  if(online.connection&&!online.ranked){
+    const connection=online.connection
+    api('/room',{action:'leave',token:connection.token}).then(()=>{resetOnline();openLobby()}).catch(error=>{
+      if(online.state)online.state.notice=error.message
+      renderHud()
+    })
+    return
+  }
   if(online.connection){
     online.rematch=true
     renderHud()
@@ -268,9 +277,13 @@ function write(id,text){
 }
 function renderHud(){
   write('coin-total',coins+' coins')
-  const remaining=refillDeadline===null?null:Math.max(0,Math.ceil((refillDeadline-performance.now())/1000))
-  write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
-    String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
+  for(const [id,deadline] of [['claim-coins',refillDeadline],['claim-diamonds',diamondDeadline]]){
+    const remaining=deadline===null?null:Math.max(0,Math.ceil((deadline-performance.now())/1000))
+    $(id).disabled=claimBusy||remaining!==0
+    const clock=remaining===null?'Play online to unlock':remaining===0?'Collect':
+      [Math.floor(remaining/3600),Math.floor(remaining/60)%60,remaining%60].map(value=>String(value).padStart(2,'0')).join(':')
+    write(id,clock)
+  }
   $('game-root').dataset.match=String(!menu)
   write('home-player',username||(profileError?'Profile unavailable':!profile&&!ageConfirmed?'Online play is 13+':'Loading profile…'))
   $('home-view').hidden=!menu
@@ -303,6 +316,19 @@ function renderHud(){
   ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
   $('overlay').hidden=!overlay
   $('match-stage').dataset.overlay=String(overlay)
+  $('leave-match').hidden=menu||!online.connection||game.phase==='over'&&Boolean(online.matchId)
+  const series=online.state?.series
+  $('series-score').hidden=!series||series[0]+series[1]<1||game.phase==='over'
+  if(series)write('series-score','Rematch '+series[online.seat]+'/'+series[1-online.seat])
+  const duel=$('duel-rematch')
+  const offer=online.state?.duelOffer
+  duel.hidden=game.phase!=='over'||!online.state?.duel
+  duel.disabled=offer===online.seat
+  write('duel-rematch',offer===undefined?'Rematch':offer===online.seat?'Waiting for opponent':'Accept rematch')
+  $('opponent-profile').hidden=game.phase!=='over'||!online.state?.opponent
+  $('add-opponent').hidden=$('opponent-profile').hidden
+  $('match-departure').hidden=!online.state?.departure
+  write('match-departure',online.state?.departure||'')
   $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
   if(menu){
     showOverlay(fields[currentField].name,'','Play online',false)
@@ -317,11 +343,13 @@ function renderHud(){
       const change=online.state.result.coins
       message+=' · '+(change>0?'+':'')+change+' Arena Coins'
     }
-    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · 30 Arena Coins entry'
+    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · '+online.state.result.entry+' Arena Coins entry'
+    if(online.state?.duelMessage)message+=' · '+online.state.duelMessage
+    if(online.state?.duelOffer!==undefined&&online.state.duelOffer!==online.seat)message+=' · You have a rematch challenge.'
     if(online.state?.notice)message+=' · '+online.state.notice
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
-    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
+    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.connection?'Find another match':'Play again'
     showOverlay(title,message,replay,true)
   }
   const craft=game.craft[seat]
@@ -532,6 +560,7 @@ function paintTrail(g,style,points,now,color,scale=1){
 function drawShipTrails(count,now){
   if(menu||game.phase!=='play'){shipTracks=[];return}
   for(let seat=0;seat<count;seat++){
+    if(game.craft[seat].inactive){shipTracks[seat]=[];continue}
     const ship=pos[seat]
     let track=shipTracks[seat]??=[]
     const last=track.at(-1)
@@ -594,6 +623,7 @@ function draw(dt){
   const visibleShips=solo?1:game.craft.length
   drawShipTrails(visibleShips,performance.now()/1000)
   for(let seat=0;seat<visibleShips;seat++){
+    if(game.craft[seat].inactive)continue
     const ship=pos[seat], shipColor=game.craft[seat].color
     const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
@@ -630,15 +660,25 @@ function inputState(){
 function frame(now){
   const dt=clamp((now-frameTime)/1000,0,.05)
   frameTime=now
-  if(pointer&&(game.phase!=='play'||pointer.active===false&&now>=pointer.until))pointer=null
+  if(pointer&&(game.phase==='over'||pointer.active===false&&now>=pointer.until))pointer=null
   if(practicing&&!anyDialog()){
     const input=inputState()
+    const previousPhase=game.phase
     practiceBank+=dt
     while(practiceBank>=stepSeconds){step(game,[input]);practiceBank-=stepSeconds}
+    if(previousPhase!=='play'&&game.phase==='play')rebasePointer()
   }
-  if(username&&refillDeadline!==null&&now>=refillDeadline&&now>=nextRefillCheck){
-    nextRefillCheck=now+4000
+  if(menu&&!username&&(profile||ageConfirmed)&&!profileRequest&&now>=nextProfileRetry&&
+    pagePath==='/'&&location.protocol!=='file:'){
+    nextProfileRetry=now+12000
     refreshProfile()
+  }
+  if(username&&now-lastPresence>25000){
+    lastPresence=now
+    if($('social-dialog').open&&socialMode==='friends')loadSocial('friends')
+    else api('/social',{action:'presence',profile}).then(state=>{
+      write('open-friends',state.invite?'Friends · Invite':'Friends')
+    }).catch(()=>{})
   }
   syncMatchMusic()
   renderEvent()
@@ -650,7 +690,7 @@ $('match-view').addEventListener('contextmenu',event=>event.preventDefault())
 $('match-view').addEventListener('selectstart',event=>event.preventDefault())
 $('match-view').addEventListener('dblclick',event=>event.preventDefault())
 function blockMatchZoom(event){
-  if(document.documentElement.dataset.gameLocked==='true'&&event.cancelable)event.preventDefault()
+  if(event.cancelable)event.preventDefault()
 }
 for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,blockMatchZoom,{passive:false})
 let lastActionTap=0
@@ -661,7 +701,14 @@ $('match-view').addEventListener('touchend',event=>{
   lastActionTap=now
 },{passive:false})
 const steerSurface=$('match-view')
+function rebasePointer(){
+  if(!pointer?.active||!pointer.relative)return
+  const craft=game.craft[online.seat]
+  Object.assign(pointer,{originX:craft.x,originY:craft.y,x:craft.x,y:craft.y,startX:pointer.lastX,startY:pointer.lastY})
+}
 function movePointer(event){
+  pointer.lastX=event.clientX
+  pointer.lastY=event.clientY
   if(pointer.relative){
     pointer.x=clamp(pointer.originX+(event.clientX-pointer.startX)*pointer.scaleX,0,W)
     pointer.y=clamp(pointer.originY+(event.clientY-pointer.startY)*pointer.scaleY,0,H)
@@ -672,8 +719,8 @@ function movePointer(event){
   pointer.y=clamp((event.clientY-rect.top)*H/rect.height,0,H)
 }
 steerSurface.addEventListener('pointerdown',event=>{
-  if(event.button!==0||menu||game.phase!=='play'||pointer?.active||anyDialog())return
-  if(event.target.closest('button, a, input, select, .overlay'))return
+  if(event.button!==0||menu||game.phase==='over'&&!online.connection||pointer?.active||anyDialog())return
+  if(event.target.closest('button, a, input, select')||online.matchId&&game.phase==='over')return
   const relative=event.pointerType==='touch'||event.pointerType==='pen'
   if(!relative&&event.target!==canvas)return
   const rect=canvas.getBoundingClientRect()
@@ -739,7 +786,7 @@ for(const button of document.querySelectorAll('[data-close]'))button.addEventLis
 async function api(route,data){
   if(location.protocol==='file:')throw new Error('Online play is unavailable in this copy.')
   const controller=new AbortController()
-  const timer=setTimeout(()=>controller.abort(),3600)
+  const timer=setTimeout(()=>controller.abort(),route==='/account'?18000:6500)
   try{
     const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal})
       .catch(()=>{throw new Error('Connection lost. Try again.')})
@@ -761,6 +808,7 @@ function applyProfile(data){
     diamonds=0
     gear=[]
     refillDeadline=null
+    diamondDeadline=null
     ownsPack=false
     cosmetic='classic'
     shipStyle='classic'
@@ -780,6 +828,7 @@ function applyProfile(data){
   blockedCount=data.blockedCount||0
   coins=data.coins||0
   diamonds=data.diamonds||0
+  diamondDeadline=Number.isFinite(data.diamondRefillIn)?performance.now()+data.diamondRefillIn:null
   refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
   gear=data.gear||[]
   ownsPack=data.ownsPack
@@ -799,6 +848,7 @@ function guestDevice(){
   return id
 }
 async function refreshProfile(){
+  nextProfileRetry=performance.now()+12000
   if(location.protocol==='file:'||pagePath==='/account-deletion'&&!profile||!profile&&!ageConfirmed)return
   if(profileRequest)return profileRequest
   profileRequest=(async()=>{
@@ -1016,6 +1066,11 @@ function applyOnlineState(state){
   if(state.notice)online.rematch=false
   if(Number.isFinite(state.balance))coins=state.balance
   if(state.notice)cachedStatus=state.notice
+  if(state.result?.medals?.length&&medalMatch!==state.matchId){
+    medalMatch=state.matchId
+    medalQueue.push(...state.result.medals)
+    showNextMedal()
+  }
   if(!state.game){
     if(online.rematch&&state.queued){
       online.matchId=null
@@ -1025,17 +1080,22 @@ function applyOnlineState(state){
     return
   }
   if(state.matchId!==online.matchId){
+    const heldPointer=pointer?.active?pointer:null
     clearPlayState()
+    pointer=heldPointer
     online.matchId=state.matchId
     online.seat=state.seat
     online.rematch=false
     game=state.game
+    rebasePointer()
     $('field-picker').value=String(game.field)
     write('room-message','You are '+(teamOf(game,state.seat)===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
     closeDialog('lobby-dialog')
   }else{
     if(game.phase!=='serve'&&state.game.phase==='serve'){pos=null;localPose=null}
+    const previousPhase=game.phase
     game=state.game
+    if(previousPhase!=='play'&&game.phase==='play')rebasePointer()
   }
   snapshotArrival=performance.now()
   if(online.rematch&&state.queued){
@@ -1104,6 +1164,31 @@ $('home-after-match').addEventListener('click',async()=>{
   resetOnline()
   if(connection)try{await api('/room',{action:'leave',token:connection.token})}catch{}
   refreshProfile()
+})
+$('leave-match').addEventListener('click',()=>{
+  write('leave-message','')
+  showDialog('leave-dialog')
+})
+$('confirm-leave').addEventListener('click',async()=>{
+  if(!online.connection)return
+  $('confirm-leave').disabled=true
+  try{
+    await api('/room',{action:'leave',token:online.connection.token})
+    closeDialog('leave-dialog')
+    resetOnline()
+    await refreshProfile()
+  }catch(error){write('leave-message',error.message)}
+  finally{$('confirm-leave').disabled=false}
+})
+for(const action of ['claim-coins','claim-diamonds'])$(action).addEventListener('click',async()=>{
+  if(claimBusy||!profile)return
+  claimBusy=true
+  renderHud()
+  try{
+    applyProfile(await api('/account',{action,profile}))
+    write('claim-message',action==='claim-coins'?'Collected 100 Arena Coins.':'Collected 20 diamonds.')
+  }catch(error){write('claim-message',error.message)}
+  finally{claimBusy=false;renderHud()}
 })
 $('host').addEventListener('click',()=>connect('host'))
 $('ranked').addEventListener('click',()=>connect('rank'))
@@ -1338,7 +1423,20 @@ function showShop(page='ship'){
   setShopPage(page)
 }
 $('shop').addEventListener('click',()=>showShop())
-$('result-shop').addEventListener('click',()=>showShop())
+$('result-shop').addEventListener('click',async()=>{
+  if(online.connection)try{await api('/room',{action:'decline-rematch',token:online.connection.token})}catch{}
+  showShop()
+})
+$('duel-rematch').addEventListener('click',async()=>{
+  if(!online.connection)return
+  try{
+    await api('/room',{action:'duel-rematch',token:online.connection.token})
+    syncOnline(true)
+  }catch(error){
+    if(online.state)online.state.notice=error.message
+    renderHud()
+  }
+})
 $('featured-pack').addEventListener('click',()=>showShop('diamonds'))
 for(const tab of document.querySelectorAll('[data-market]'))tab.addEventListener('click',()=>setShopPage(tab.dataset.market))
 $('shop-action').addEventListener('click',()=>shopAction(selectedPreview))
@@ -1435,6 +1533,133 @@ $('send-report').addEventListener('click',async()=>{
     write('report-message','Report submitted.')
   }catch(error){write('report-message',error.message)}
   finally{$('send-report').disabled=false}
+})
+function showNextMedal(){
+  const medal=medalQueue.shift()
+  if(!medal){closeDialog('medal-dialog');return}
+  write('medal-title',medal.name)
+  const messages={
+    duel:'You earned this in Ranked. Keep sharpening your next shot.',
+    war:'Your team made it count. Take that momentum into the next round.',
+    friendly:'You earned this in a friend match. Keep the rivalry going.',
+    played:'Every match adds up. Your next milestone is waiting.',
+    streak:'You kept the wins coming. See how far you can take the streak.'
+  }
+  write('medal-message','Congratulations on '+medal.name+'! '+(messages[medal.key]||'You earned a place on the leaderboard.')+' '+medal.instruction+'.')
+  showDialog('medal-dialog')
+}
+$('medal-dismiss').addEventListener('click',showNextMedal)
+$('medal-dialog').addEventListener('click',event=>{if(event.target===$('medal-dialog'))showNextMedal()})
+function socialItem(label,detail='',action='',handler=null,style=''){
+  const row=document.createElement('div')
+  row.className='social-row '+style
+  const text=document.createElement('span')
+  text.textContent=detail?label+' · '+detail:label
+  row.append(text)
+  if(action){
+    const button=document.createElement('button')
+    button.type='button'
+    button.textContent=action
+    button.addEventListener('click',handler)
+    row.append(button)
+  }
+  $('social-content').append(row)
+}
+function statLine(data){
+  const count=data?.played||0,wins=data?.wins||0
+  return count+' played · '+wins+' wins · '+(count-wins)+' losses · '+(count?Math.round(wins*100/count):0)+'% wins'
+}
+function renderPlayerStats(player,ranks){
+  socialItem(player.name,player.country||'')
+  socialItem('Ranked 1v1',statLine(player.duel))
+  socialItem('War Zone',statLine(player.war))
+  socialItem('Friend matches',statLine(player.friendMatches))
+  socialItem('Rating',String(player.rating))
+  if(ranks){
+    for(const [key,label] of [['lifetime','Lifetime rank'],['weekly','Weekly rank'],['monthly','Monthly rank']])
+      socialItem(label,ranks[key]?'#'+ranks[key]:'Unranked')
+    socialItem('Friends rank',ranks.friendly?'#'+ranks.friendly:'Add 10 friends to unlock')
+  }
+  socialItem('Weekly world top 10',String(player.weeklyTop))
+  socialItem('Monthly world top 10',String(player.monthlyTop))
+}
+async function socialRequest(action,extra={}){
+  return api('/social',{profile,action,...extra})
+}
+async function loadSocial(mode,name){
+  if(!profile){write('social-message','Play online to create a player profile.');return}
+  socialMode=mode
+  const requestMode=mode
+  write('social-message','')
+  try{
+    const data=mode==='board'?await socialRequest('leaderboard',{kind:$('board-period').value,region:$('board-region').value,offset:boardOffset}):
+      mode==='opponent'?await socialRequest('profile',{name}):await socialRequest('summary')
+    if(socialMode!==requestMode)return
+    $('social-content').replaceChildren()
+    $('social-filter').hidden=mode!=='board'
+    $('country-form').hidden=mode!=='stats'
+    if(mode==='stats'||mode==='opponent'){
+      if(mode==='stats')$('country-code').value=data.player.country||''
+      renderPlayerStats(data.player,data.ranks)
+    }else if(mode==='medals'){
+      const earned=new Set(data.player.medals)
+      socialItem(earned.size+' of '+data.medalCatalog.length+' medals earned')
+      for(const medal of data.medalCatalog)socialItem(earned.has(medal.id)?'★ '+medal.name:medal.name,
+        earned.has(medal.id)?'Earned':medal.instruction,'',null,earned.has(medal.id)?'':'medal-locked')
+    }else if(mode==='board'){
+      $('board-prev').disabled=boardOffset===0
+      $('board-next').disabled=!data.more
+      if(!data.rows.length)socialItem('No ranked players yet')
+      for(const row of data.rows)socialItem('#'+row.rank+' '+row.name,String(row.points))
+    }else{
+      if(data.invite)socialItem(data.invite.from+' invited you','','Join',()=>{
+        $('room-input').value=data.invite.code
+        closeDialog('social-dialog')
+        connect('join')
+      })
+      for(const request of data.requests)socialItem(request,'Friend request','Accept',async()=>{
+        try{await socialRequest('friend-accept',{name:request});loadSocial('friends')}
+        catch(error){write('social-message',error.message)}
+      })
+      for(const friend of data.friends)socialItem('● '+friend.name,friend.online?'Online':'Offline',
+        friend.online?'Invite':'',async()=>{
+          try{
+            if(online.connection&&!online.connection.code)throw new Error('Return home before inviting a friend.')
+            if(!online.connection)await connect('host')
+            await socialRequest('invite',{name:friend.name})
+            write('social-message','Invitation sent.')
+          }catch(error){write('social-message',error.message)}
+        },friend.online?'social-online':'social-offline')
+      if(!data.friends.length&&!data.requests.length&&!data.invite)socialItem('Add friends after a match.')
+    }
+  }catch(error){write('social-message',error.message)}
+}
+function openSocial(mode,name){
+  closeDialog('account-dialog')
+  showDialog('social-dialog')
+  $('social-content').replaceChildren()
+  $('social-filter').hidden=true
+  $('country-form').hidden=true
+  loadSocial(mode,name)
+}
+for(const [id,mode] of [['open-friends','friends'],['open-board','board'],['open-medals','medals'],['account-stats','stats'],['account-medals','medals']])
+  $(id).addEventListener('click',()=>{boardOffset=0;openSocial(mode)})
+for(const mode of ['stats','friends','board','medals'])$('social-'+mode).addEventListener('click',()=>{boardOffset=0;loadSocial(mode)})
+for(const id of ['board-period','board-region'])$(id).addEventListener('change',()=>{boardOffset=0;loadSocial('board')})
+$('board-prev').addEventListener('click',()=>{boardOffset=Math.max(0,boardOffset-100);loadSocial('board')})
+$('board-next').addEventListener('click',()=>{boardOffset+=100;loadSocial('board')})
+$('country-form').addEventListener('submit',async event=>{
+  event.preventDefault()
+  try{await socialRequest('country',{country:$('country-code').value.trim()});loadSocial('stats')}
+  catch(error){write('social-message',error.message)}
+})
+$('opponent-profile').addEventListener('click',()=>openSocial('opponent',online.state?.opponent))
+$('add-opponent').addEventListener('click',async()=>{
+  try{
+    await socialRequest('friend-request',{name:online.state?.opponent})
+    if(online.state)online.state.notice='Friend request sent.'
+    renderHud()
+  }catch(error){if(online.state)online.state.notice=error.message;renderHud()}
 })
 $('support-form').addEventListener('submit',async(event)=>{
   event.preventDefault()

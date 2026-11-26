@@ -66,12 +66,12 @@ async function profiles(request,env,url){
   }
   if(request.method!=='POST')return new Response(null,{status:405})
   const raw=await request.text()
-  if(raw.length>150000)return new Response(null,{status:413})
+  if(raw.length>400000)return new Response(null,{status:413})
   let rows
   try{rows=JSON.parse(raw)}catch{return new Response(null,{status:400})}
   if(!Array.isArray(rows)||!rows.length||rows.length>25||rows.some(row=>!row||
     !/^[a-f0-9]{48}$/.test(row.id)||!Number.isSafeInteger(row.revision)||row.revision<=0||
-    typeof row.profile!=='string'||row.profile.length>5000))return new Response(null,{status:400})
+    typeof row.profile!=='string'||row.profile.length>15000))return new Response(null,{status:400})
   const write=env.LEARNING.prepare(`
     INSERT INTO player_profiles(id,revision,profile) VALUES(?,?,?)
     ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,profile=excluded.profile

@@ -8,6 +8,9 @@ const derive=promisify(scrypt)
 const opponentNames=require('./opponent-names.cjs')
 const starterDiamonds=25
 const winReward=30
+const warEntry=50
+const diamondReward=20
+const diamondPeriod=24*60*60*1000
 const rankedEntry=30
 const rankedPrize=rankedEntry*2
 const refillAmount=100
@@ -25,7 +28,7 @@ const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json'
 const profiles=new Map()
 const learningKey='_botLearningV1'
 let learning={}
-const rankedMagnet={range:48,push:465,pull:210}
+const rankedMagnet={range:28,push:370,pull:145}
 const durableProfiles=process.env.MAGNET_DURABLE_PROFILES==='1'
 const profileRevisionKey='_profileRevisionsV1'
 const profileRevisions=new Map()
@@ -48,6 +51,7 @@ try{
     if(Number.isSafeInteger(revision))profileRevisions.set(key,revision)
   }
 }catch(error){if(error.code!=='ENOENT')throw error}
+const publicIds=new Map([...profiles.keys()].map(key=>[blockKey(key),key]))
 const usernames=new Map()
 for(const [key,account] of profiles)if(account.username)usernames.set(account.username.toLowerCase(),key)
 const emails=new Map()
@@ -89,8 +93,9 @@ function refundInterruptedRanked(){
   let refunded=false
   for(const account of profiles.values()){
     if(!account.pendingRankedEntry)continue
-    account.coins+=rankedEntry
+    account.coins+=account.pendingRankedAmount??rankedEntry
     delete account.pendingRankedEntry
+    delete account.pendingRankedAmount
     refunded=true
   }
   return refunded
@@ -118,6 +123,8 @@ async function restoreProfiles(){
     else profiles.set(id,restored)
     profileRevisions.set(id,revision)
   }
+  publicIds.clear()
+  for(const id of profiles.keys())publicIds.set(blockKey(id),id)
   usernames.clear()
   emails.clear()
   for(const [id,account] of profiles){
@@ -166,16 +173,12 @@ function identity(value){
 function refreshCoins(account,now=Date.now()){
   if(!Number.isFinite(account.coins)){account.coins=refillAmount;dirty=true}
   if(!Number.isFinite(account.nextCoinsAt)){account.nextCoinsAt=now+refillPeriod;dirty=true}
-  if(now<account.nextCoinsAt)return
-  const periods=1+Math.floor((now-account.nextCoinsAt)/refillPeriod)
-  account.coins+=periods*refillAmount
-  account.nextCoinsAt+=periods*refillPeriod
-  dirty=true
+  if(!Number.isFinite(account.nextDiamondsAt)){account.nextDiamondsAt=now+diamondPeriod;dirty=true}
 }
 function profileState(key){
   const account=profiles.get(key)
   refreshCoins(account)
-  return {refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,blockedCount:account.blockedPlayers?.length||0,diamonds:account.diamonds??starterDiamonds,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack}
+  return {diamondRefillIn:Math.max(0,account.nextDiamondsAt-Date.now()),refillIn:Math.max(0,account.nextCoinsAt-Date.now()),profile:key,username:account.username||null,guest:!account.credentials,email:account.email||null,coins:account.coins||0,blockedCount:account.blockedPlayers?.length||0,diamonds:account.diamonds??starterDiamonds,gear:account.gear||[],rating:account.rating,ownsPack:account.ownsPack}
 }
 function saveAccount(key,account){
   const prior=profiles.get(key)
@@ -183,6 +186,7 @@ function saveAccount(key,account){
   const newName=account.username.toLowerCase()
   if(oldName&&oldName!==newName)usernames.delete(oldName)
   profiles.set(key,account)
+  publicIds.set(blockKey(key),key)
   usernames.set(newName,key)
   if(account.email)emails.set(account.email,key)
   try{persist()}catch(error){
@@ -191,7 +195,7 @@ function saveAccount(key,account){
     if(prior){
       profiles.set(key,prior)
       if(oldName)usernames.set(oldName,key)
-    }else profiles.delete(key)
+    }else{profiles.delete(key);publicIds.delete(blockKey(key))}
     throw error
   }
   return profileState(key)
@@ -253,6 +257,7 @@ async function deleteAccount(data){
     }
     profileRevisions.set(key,revision)
     profiles.delete(key)
+    publicIds.delete(blockKey(key))
     usernames.delete(account.username.toLowerCase())
     if(account.email)emails.delete(account.email)
     persist()
@@ -325,6 +330,18 @@ function allowAccountAttempt(ip){
 }
 async function accountAction(data,ip){
   const action=data.action
+  if(action==='claim-coins'||action==='claim-diamonds'){
+    const key=identity(data.profile), account=profiles.get(key)
+    const now=Date.now()
+    refreshCoins(account,now)
+    const diamond=action==='claim-diamonds'
+    const deadline=diamond?'nextDiamondsAt':'nextCoinsAt'
+    if(account[deadline]>now)throw new Error('This reward is not ready yet.')
+    const updated={...account,[deadline]:now+(diamond?diamondPeriod:refillPeriod)}
+    if(diamond)updated.diamonds=(account.diamonds??starterDiamonds)+diamondReward
+    else updated.coins+=refillAmount
+    return saveAccount(key,updated)
+  }
   if(action==='clear-blocks'){
     const key=identity(data.profile)
     return saveAccount(key,{...profiles.get(key),blockedPlayers:[]})
@@ -383,7 +400,7 @@ async function accountAction(data,ip){
 function redeem(data){
   const key=identity(data.profile)
   const account=profiles.get(key)
-  if(queued.has(identities.get(key)?.token)&&data.gear!=='exchange-coins')throw new Error('Finish matchmaking before spending coins.')
+  if((queued.has(identities.get(key)?.token)||warQueue.has(identities.get(key)?.token))&&data.gear!=='exchange-coins')throw new Error('Finish matchmaking before spending coins.')
   if(data.gear==='exchange-coins'){
     const count=data.packs
     if(!Number.isInteger(count)||count<1||count>coinExchange.maxPacks)throw new Error('Invalid coin exchange.')
@@ -497,12 +514,12 @@ function ratingChange(rating,other,won,games,normalK=24){
   const expected=1/(1+10**((other-rating)/400))
   return Math.round((games<8?normalK*1.8:normalK)*(Number(won)-expected))
 }
-function hasRankedEntry(profile){
+function hasRankedEntry(profile,entry=rankedEntry){
   const account=profiles.get(profile)
   refreshCoins(account)
-  return account.coins>=rankedEntry&&!account.pendingRankedEntry
+  return account.coins>=entry&&!account.pendingRankedEntry
 }
-function startMatch(players,field,kind,rival=null){
+function startMatch(players,field,kind,rival=null,series=null){
   const skill=rival?playerSkill(players[0],'bot'):1000
   const botRating=rival?botTarget(skill):null
   const difficulty=difficultyForSkill(botRating??skill)
@@ -510,28 +527,31 @@ function startMatch(players,field,kind,rival=null){
   const game=createGame({mode:rival?'bot':'online',field,difficulty,rival:style})
   const names=players.map(player=>profiles.get(player.profile).username)
   if(rival)names.push(rival.displayName)
-  const match={id:id(),players,field,kind,names,skill,botRating,game,results:null,created:Date.now()}
+  const match={id:id(),players,field,kind,names,skill,botRating,game,rival,series:series||[0,0],results:null,created:Date.now()}
   registerMatch(match)
 }
 function registerMatch(match){
-  const staked=['ranked','fallback'].includes(match.kind)
-  if(staked){
+  const entry=match.kind==='warzone'?warEntry:['ranked','fallback'].includes(match.kind)?rankedEntry:0
+  if(entry){
     const accounts=match.players.map(player=>profiles.get(player.profile))
-    if(match.players.some(player=>!hasRankedEntry(player.profile)))throw new Error('Ranked entry requires 30 Arena Coins.')
+    if(match.players.some(player=>!hasRankedEntry(player.profile,entry)))throw new Error('You need '+entry+' Arena Coins to enter.')
     for(const account of accounts){
-      account.coins-=rankedEntry
+      account.coins-=entry
+      account.pendingRankedAmount=entry
       account.pendingRankedEntry=match.id
     }
     try{persist()}catch(error){
       for(const account of accounts){
-        account.coins+=rankedEntry
+        account.coins+=entry
         delete account.pendingRankedEntry
+        delete account.pendingRankedAmount
       }
       dirty=true
       throw error
     }
   }
-  match.staked=staked
+  match.entry=entry
+  match.staked=entry>0
   matches.set(match.id,match)
   match.game.fairMagnets=['ranked','fallback','warzone'].includes(match.kind)
   if(match.game.fairMagnets)for(const ship of match.game.craft)ship.magnet={...rankedMagnet}
@@ -583,21 +603,204 @@ function startWarMatch(group){
   const game=createGame({mode:'warzone',field,bots})
   registerMatch({id:id(),players,field,kind:'warzone',names,skill,game,results:null,created:Date.now()})
 }
+const ladderKinds=['weekly','monthly']
+const medalTracks=[
+  ['duel','Win ranked 1v1 matches','Duel Ace',[1,3,5,10,20,35,50,75,100,150,200,300]],
+  ['war','Win War Zone matches','Zone Captain',[1,3,5,10,20,35,50,75,100,150,200,300]],
+  ['friendly','Win friend matches','Friendly Rival',[1,3,5,10,20,35,50,75,100,150,200,300]],
+  ['played','Complete or play rated matches','Arena Veteran',[1,5,10,20,30,50,75,100,150,200,300,500]],
+  ['streak','Win consecutive ranked 1v1 matches','Win Streak',[2,3,4,5,6,7,8,9,10,12,15,20]],
+  ['weeklyTop','Place in a weekly world top 10','Weekly Contender',[1,2,3,4,5,6,7,8,9,10,15,20]],
+  ['monthlyTop','Place in a monthly world top 10','Monthly Contender',[1,2,3,4,5,6,7,8,9,10,15,20]],
+  ['countryTop','Place in a country top 10','Home Hero',[1,2,3,4,5,6,7,8,9,10,15,20]]
+]
+const medalCatalog=medalTracks.flatMap(([key,instruction,title,levels])=>levels.map(level=>({
+  id:key+':'+level,name:title+' '+level,instruction:instruction+' ('+level+')',key,level
+})))
+for(const period of ladderKinds)for(const region of ['world','country'])for(let place=1;place<=3;place++){
+  const key=period+':'+region+':'+place
+  medalCatalog.push({id:key,key,level:1,name:(region==='world'?'World':'Country')+' '+period+' #'+place,
+    instruction:'Finish #'+place+' in a '+period+' '+region+' leaderboard'})
+}
+function periodKey(kind,now=Date.now()){
+  const date=new Date(now)
+  if(kind==='weekly')date.setUTCDate(date.getUTCDate()-(date.getUTCDay()+6)%7)
+  else date.setUTCDate(1)
+  return date.toISOString().slice(0,10)
+}
+function recordStats(account,mode,won,ladder=false){
+  const stats=account.stats??={}
+  const row=stats[mode]??={played:0,wins:0}
+  row.played++
+  if(won)row.wins++
+  if(mode==='duel'){
+    stats.currentStreak=won?(stats.currentStreak||0)+1:0
+    stats.bestStreak=Math.max(stats.bestStreak||0,stats.currentStreak)
+  }
+  if(won&&ladder)for(const kind of ladderKinds){
+    const periods=(account.ladders??={})[kind]??={}
+    const key=periodKey(kind)
+    periods[key]=(periods[key]||0)+1
+  }
+}
+function earnedMedals(account){
+  const stats=account.stats||{}, awards=account.rankAwards||{}
+  const values={
+    duel:stats.duel?.wins||0,war:stats.war?.wins||0,friendly:stats.friendly?.wins||0,
+    played:['duel','war','friendly'].reduce((sum,key)=>sum+(stats[key]?.played||0),0),
+    streak:stats.bestStreak||0,weeklyTop:awards.weeklyTop||0,monthlyTop:awards.monthlyTop||0,countryTop:awards.countryTop||0,
+    ...awards.podiums
+  }
+  return medalCatalog.filter(item=>(values[item.key]||0)>=item.level).map(item=>item.id)
+}
+function leaderboard(kind,region,country,key=periodKey(kind)){
+  const values=[]
+  for(const [id,account] of profiles){
+    if(!account.username||region==='country'&&(!country||account.country!==country))continue
+    const points=kind==='lifetime'?(account.rankedGames>0?account.rating:0):account.ladders?.[kind]?.[key]||0
+    if(points>0)values.push({id,name:account.username,country:account.country||null,points})
+  }
+  return values.sort((a,b)=>b.points-a.points||a.name.localeCompare(b.name)||a.id.localeCompare(b.id))
+}
+let nextLadderAwards=0
+function settleLadders(now){
+  if(now<nextLadderAwards)return
+  nextLadderAwards=now+60000
+  for(const kind of ladderKinds){
+    const current=periodKey(kind,now)
+    const keys=new Set(), countries=new Set()
+    for(const account of profiles.values()){
+      if(account.country)countries.add(account.country)
+      for(const key of Object.keys(account.ladders?.[kind]||{}))if(key<current)keys.add(key)
+    }
+    for(const key of [...keys].sort()){
+      const groups=[['world',null],...[...countries].map(country=>['country',country])]
+      for(const [region,country] of groups)for(const [index,row] of leaderboard(kind,region,country,key).slice(0,100).entries()){
+        const account=profiles.get(row.id)
+        const awards=account.rankAwards??={}
+        const paid=awards.paid??={}
+        const marker=kind+':'+region
+        if(paid[marker]&&paid[marker]>=key)continue
+        paid[marker]=key
+        const place=index+1
+        account.coins+=place===1?500:place<=3?300:place<=10?150:50
+        if(place<=10){
+          const counter=region==='country'?'countryTop':kind+'Top'
+          awards[counter]=(awards[counter]||0)+1
+        }
+        if(place<=3)(awards.podiums??={})[kind+':'+region+':'+place]=1
+        dirty=true
+      }
+      for(const account of profiles.values()){
+        if(account.ladders?.[kind]?.[key]!==undefined){
+          delete account.ladders[kind][key]
+          dirty=true
+        }
+      }
+    }
+  }
+}
+function publicStats(account){
+  const stats=account.stats||{}
+  return {name:account.username,country:account.country||null,duel:stats.duel||null,
+    war:stats.war||null,friendMatches:stats.friendly||null,rating:account.rating??1000,
+    weeklyTop:account.rankAwards?.weeklyTop||0,monthlyTop:account.rankAwards?.monthlyTop||0,
+    medals:earnedMedals(account)}
+}
+const presence=new Map(), friendInvites=new Map()
+function socialAction(data){
+  const key=identity(data.profile),account=profiles.get(key),now=Date.now()
+  presence.set(key,now)
+  const action=data.action
+  if(action==='presence'){
+    const invite=friendInvites.get(key)
+    return {invite:Boolean(invite?.expires>now&&inviteRooms.has(invite.code))}
+  }
+  if(action==='country'){
+    const country=typeof data.country==='string'?data.country.toUpperCase():''
+    if(country&&!/^[A-Z]{2}$/.test(country))throw new Error('Enter a two-letter country code.')
+    if(account.country&&account.country!==country&&ladderKinds.some(kind=>Object.keys(account.ladders?.[kind]||{}).length))
+      throw new Error('You can change country after the current ranking periods end.')
+    saveAccount(key,{...account,country})
+  }
+  if(action==='leaderboard'){
+    const kind=['lifetime',...ladderKinds].includes(data.kind)?data.kind:'lifetime'
+    const region=data.region==='country'?'country':'world'
+    const offset=Number.isInteger(data.offset)?Math.max(0,Math.min(50000,data.offset)):0
+    const board=leaderboard(kind,region,account.country)
+    return {rows:board.slice(offset,offset+100).map(({id,...row},i)=>({...row,rank:offset+i+1})),more:offset+100<board.length}
+  }
+  const selfName=account.username
+  const targetKey=typeof data.name==='string'?usernames.get(data.name.trim().toLowerCase()):null
+  const target=profiles.get(targetKey)
+  const selfRef=blockKey(key)
+  const targetRef=target?blockKey(targetKey):null
+  const friends=account.friends||[]
+  if(['profile','friend-request','friend-accept','invite'].includes(action)){
+    if(!target||targetKey===key||!mayMatch(key,targetKey))throw new Error('Player profile is unavailable.')
+    if(action==='profile')return {player:publicStats(target)}
+    if(action==='friend-request'){
+      const requests=target.friendRequests||[]
+      if(!friends.includes(targetRef)&&!requests.includes(selfRef)){
+        if(requests.length>=100||friends.length>=100)throw new Error('Friend list or requests are full.')
+        saveAccount(targetKey,{...target,friendRequests:[...requests,selfRef]})
+      }
+    }
+    if(action==='friend-accept'){
+      if(!account.friendRequests?.includes(targetRef))throw new Error('Friend request is unavailable.')
+      if(friends.length>=100||(target.friends||[]).length>=100)throw new Error('Friend list is full.')
+      saveAccount(key,{...account,friends:[...new Set([...friends,targetRef])],friendRequests:account.friendRequests.filter(ref=>ref!==targetRef)})
+      saveAccount(targetKey,{...target,friends:[...new Set([...(target.friends||[]),selfRef])],friendRequests:(target.friendRequests||[]).filter(ref=>ref!==selfRef)})
+    }
+    if(action==='invite'){
+      const host=identities.get(key)
+      if(!friends.includes(targetRef)||now-(presence.get(targetKey)||0)>70000||!host?.code||host.match)
+        throw new Error('This friend or room is unavailable.')
+      friendInvites.set(targetKey,{from:selfName,code:host.code,expires:now+90000})
+    }
+    return {}
+  }
+  const rank=kind=>{
+    const index=leaderboard(kind,'world').findIndex(row=>row.id===key)
+    return index<0?null:index+1
+  }
+  const incoming=friendInvites.get(key)
+  const roster=friends.map(ref=>publicIds.get(ref)).filter(id=>profiles.has(id)&&mayMatch(key,id))
+  const friendlyRank=roster.length>=10?
+    1+roster.filter(id=>(profiles.get(id).stats?.friendly?.wins||0)>(account.stats?.friendly?.wins||0)).length:null
+  const liveInvite=incoming?.expires>now&&inviteRooms.has(incoming.code)&&!inviteRooms.get(incoming.code)?.match?incoming:null
+  return {player:publicStats(account),ranks:{lifetime:rank('lifetime'),weekly:rank('weekly'),monthly:rank('monthly'),friendly:friendlyRank},
+    friends:roster.map(id=>({name:profiles.get(id).username,online:now-(presence.get(id)||0)<70000})),
+    requests:(account.friendRequests||[]).map(ref=>publicIds.get(ref)).filter(id=>profiles.has(id)&&mayMatch(key,id)).map(id=>profiles.get(id).username),
+    invite:liveInvite,medalCatalog}
+}
 function finish(match,winner,reason){
   if(match.results)return
+  if(match.kind!=='warzone')match.series[winner]++
   match.game.winner=winner
   match.game.phase='over'
   match.end=Date.now()
   match.results=match.players.map(()=>({reason,delta:0}))
+  const winners=match.players.filter((player,seat)=>player&&teamOf(match.game,seat)===winner).length
+  const prize=match.kind==='warzone'?Math.round(warEntry*warTeamSize*2/Math.max(1,winners)):rankedPrize
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
     const account=profiles.get(player.profile)
     refreshCoins(account)
     const won=teamOf(match.game,seat)===winner
-    const coins=match.staked?(won?rankedPrize:0):(reason==='completed'&&won?winReward:0)
-    if(match.staked&&account.pendingRankedEntry===match.id)delete account.pendingRankedEntry
+    const before=new Set(earnedMedals(account))
+    const mode=match.kind==='warzone'?'war':match.kind==='private'?'friendly':'duel'
+    const humanOpponent=match.players.some((peer,index)=>peer&&teamOf(match.game,index)!==teamOf(match.game,seat))
+    recordStats(account,mode,won,reason==='completed'&&humanOpponent&&mode!=='friendly')
+    match.results[seat].medals=earnedMedals(account).filter(id=>!before.has(id)).map(id=>medalCatalog.find(item=>item.id===id))
+
+    const coins=match.staked?(won?prize:0):(reason==='completed'&&won?winReward:0)
+    if(match.staked&&account.pendingRankedEntry===match.id){
+      delete account.pendingRankedEntry
+      delete account.pendingRankedAmount
+    }
     account.coins+=coins
-    Object.assign(match.results[seat],{coins,balance:account.coins,entry:match.staked?rankedEntry:0})
+    Object.assign(match.results[seat],{coins,balance:account.coins,entry:match.entry})
   }
   dirty=true
   if(reason==='completed'&&match.kind==='fallback'){
@@ -640,16 +843,22 @@ function scrub(player){
 }
 function remove(player){
   const match=player.match
+  cancelDuelOffer(player)
   if(match&&!match.results){
     if(match.kind==='warzone'){
       const seat=player.seat
       match.players[seat]=null
-      match.names[seat]=freeBotName(match.names)
-      const bot=warBot(match.skill,[...match.players.map(participant=>participant?.look),...match.game.bots.map(config=>config?.look)],match.field)
-      match.game.bots[seat]=bot
-      if(!match.game.fairMagnets)equipMagnet(match.game.craft[seat],bot.look.ship)
-      match.game.botThink[seat]=0
+      const account=profiles.get(player.profile)
+      recordStats(account,'war',false)
+      delete account.pendingRankedEntry
+      delete account.pendingRankedAmount
+      match.game.craft[seat].inactive=true
+      match.game.bots[seat]=null
+      match.departure=match.names[seat]+' left the match.'
+      dirty=true
       if(!match.players.some(Boolean))matches.delete(match.id)
+      else if(!match.game.craft.some((craft,index)=>!craft.inactive&&teamOf(match.game,index)===teamOf(match.game,seat)))
+        finish(match,1-teamOf(match.game,seat),'forfeit')
     }else finish(match,1-player.seat,'forfeit')
   }
   scrub(player)
@@ -746,11 +955,46 @@ function tick(){
   findWarMatches(now)
   void syncLearning(now)
   void refreshModeration()
+  settleLadders(now)
+  for(const [key,time] of presence)if(now-time>70000)presence.delete(key)
+  for(const [key,invite] of friendInvites)if(now>=invite.expires)friendInvites.delete(key)
   if(profileWrites.size)void flushProfiles()
   if(dirty){try{persist()}catch(error){console.error('Could not save profiles:',error.message)}}
 }
 setInterval(tick,12).unref()
 
+function cancelDuelOffer(player){
+  const match=player.match
+  if(!match?.results||match.kind==='warzone')return
+  const other=1-player.seat
+  if(match.offerSeat!==undefined){
+    match.duelMessages??=[]
+    match.duelMessages[other]='Rematch declined.'
+    delete match.offerSeat
+  }
+  match.noRematch=true
+}
+function requestDuel(player){
+  const match=player.match
+  if(!match?.results||match.kind==='warzone'||match.noRematch)throw new Error('Rematch is unavailable.')
+  if(match.entry&&!hasRankedEntry(player.profile,match.entry))throw new Error('You need '+match.entry+' Arena Coins to rematch.')
+  if(match.kind==='fallback'){
+    startMatch([player],match.field,match.kind,match.rival,match.series)
+    return {}
+  }
+  const rival=match.players[1-player.seat]
+  if(rival?.match!==match||identities.get(rival.profile)!==rival||!mayMatch(player.profile,rival.profile))
+    throw new Error('Rematch is unavailable.')
+  if(match.offerSeat===undefined){
+    match.offerSeat=player.seat
+    return {}
+  }
+  if(match.offerSeat===player.seat)return {}
+  if(match.entry&&!hasRankedEntry(rival.profile,match.entry))throw new Error('Your opponent needs more coins to rematch.')
+  startMatch(match.players,match.field,match.kind,null,match.series)
+  matches.delete(match.id)
+  return {}
+}
 function roomAction(data){
   if(['host','join','rank','warzone'].includes(data.action)){
     if(data.action==='join'){
@@ -763,7 +1007,8 @@ function roomAction(data){
       return {profile,token:player.token,code:data.code}
     }
     const profile=identity(data.profile)
-    if(data.action==='rank'&&!hasRankedEntry(profile))throw new Error('Ranked entry costs 30 Arena Coins. Try Free Practice while your coins refill.')
+    const entry=data.action==='rank'?rankedEntry:data.action==='warzone'?warEntry:0
+    if(entry&&!hasRankedEntry(profile,entry))throw new Error('You need '+entry+' Arena Coins to enter. Free Practice is available.')
     const player=makeSession(profile,data.look)
     if(data.action==='rank'||data.action==='warzone'){
       player.queuedAt=Date.now()
@@ -779,6 +1024,8 @@ function roomAction(data){
   const player=sessions.get(data.token)
   if(!player)throw new Error('Session ended.')
   if(data.action==='leave'){remove(player);return {}}
+  if(data.action==='duel-rematch')return requestDuel(player)
+  if(data.action==='decline-rematch'){cancelDuelOffer(player);return {}}
   if(data.action!=='sync')throw new Error('Unknown room action.')
   player.seen=Date.now()
   player.input=getInput(data.input)
@@ -787,30 +1034,21 @@ function roomAction(data){
   let notice
   if(data.rematch&&match.results){
     if(data.look)player.look=playerLook(player.profile,data.look)
-    if(match.staked&&!hasRankedEntry(player.profile)){
-      notice='Ranked entry costs 30 Arena Coins. Your next refill is on the home screen.'
-    }else if(['ranked','fallback','warzone'].includes(match.kind)){
+    if(match.staked&&!hasRankedEntry(player.profile,match.entry)){
+      notice='You need '+match.entry+' Arena Coins to enter. Your next refill is on the home screen.'
+    }else if(match.kind!=='private'){
+      cancelDuelOffer(player)
       player.match=null
       player.queuedAt=Date.now()
       const queue=match.kind==='warzone'?warQueue:queued
       queue.set(player.token,player)
       return {queued:true}
-    }else{
-      player.rematch=true
-      const rival=match.players[1-player.seat]
-      if(identities.get(rival.profile)!==rival)throw new Error('Your friend has left the room.')
-      if(rival.rematch&&!mayMatch(player.profile,rival.profile))throw new Error('A rematch is unavailable.')
-      if(rival.rematch){
-        matches.delete(match.id)
-        startMatch([rival,player],match.field,'private')
-        player.rematch=false
-      }
     }
   }
   const current=player.match
   const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit}=current.game
   return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit},
-    notice,balance:profiles.get(player.profile).coins,names:current.names,bots:craft.map((_,seat)=>!current.players[seat]),looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
+    notice,departure:current.departure,series:current.kind==='warzone'?undefined:current.series,opponent:current.results&&current.kind!=='warzone'&&current.players[1-player.seat]?current.names[1-player.seat]:null,duel:current.kind!=='warzone'&&!current.noRematch,duelMessage:current.duelMessages?.[player.seat],duelOffer:current.offerSeat,balance:profiles.get(player.profile).coins,names:current.names,bots:craft.map((_,seat)=>!current.players[seat]),looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(body))
@@ -843,8 +1081,8 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-ranked-entry',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
-  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-android-feedback',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/social','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
   const count=addressLimits.get(ip)||{start:now,count:0}
@@ -860,6 +1098,7 @@ async function serve(req,res){
     }
     const data=JSON.parse(raw)
     if(!data||typeof data!=='object')throw new Error('Invalid request.')
+    if(route==='/social'){const dataOut=socialAction(data);await flushProfiles();send(res,200,dataOut);return}
     if(route==='/support'){send(res,200,await submitSupport(data,ip));return}
     if(route==='/block-player'){const result=blockPlayer(data);await flushProfiles();send(res,200,result);return}
     if(route==='/report'){send(res,200,await reportName(data));return}

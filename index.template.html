@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0a0c18">
 <title>PuckVolt</title>
 <style>
@@ -168,6 +168,23 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 #shop-message:not(:empty){padding:8px 0;color:#c4f4ef}
 @media(max-width:420px){.market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
+html,body{-webkit-text-size-adjust:100%;touch-action:pan-y}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+#home-view:not([hidden]){display:flex;flex-direction:column;min-height:calc(100dvh - 90px)}
+.legal-footer{margin-top:auto;padding:20px 4px 8px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px;font-size:.78rem}
+.legal-footer a{color:var(--muted)}
+.social-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.social-online{color:var(--mint)}.social-offline{color:var(--rose)}.medal-locked{opacity:.5}.medal-emblem{font-size:3rem;color:#ffda79;margin:0;text-align:center}
+#series-score{display:block;text-align:center;color:var(--mint)}
+#match-departure{margin:3px 0;font-size:.78rem;color:var(--muted)}
+@media(pointer:coarse){
+  #match-view{min-height:calc(100dvh - 64px)}
+  .match-stage{--action-size:clamp(43px,11vw,58px);gap:4px;min-height:calc(100dvh - 160px)}
+  .match-stage .arena{width:min(100%,calc(max(230px,100dvh - 140px)*.6923))}
+  .match-nav button{padding:4px 7px;min-height:34px;font-size:.76rem}
+}
+
 </style>
 </head>
 <body>
@@ -187,12 +204,16 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
       <button id="shop"><span>Shop</span><small>Ships, effects and trails</small></button>
     </div>
   </div>
-  <div class="row"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></div><div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
+<div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><button id="claim-coins" disabled>Sign in</button></div>
   <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
+  <div class="reward-clock"><div><strong>Daily diamonds</strong><small>+20 diamonds</small></div><button id="claim-diamonds" disabled>Sign in</button></div>
+  <div class="row"><button id="open-friends">Friends</button><button id="open-board">Leaderboards</button><button id="open-medals">Medals</button></div>
+  <p id="claim-message" role="status"></p>
+  <footer class="legal-footer"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></footer>
 </section>
 <section id="match-view" hidden>
-<div class="match-nav"><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
-<div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
+<div class="match-nav"><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="leave-match" hidden>Leave match</button><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<p id="match-departure" role="status" hidden></p><div class="score"><span id="score0">YOU 0</span><span><span id="status" aria-live="polite">First to 3</span><small id="series-score" hidden></small></span><span id="score1">0</span></div>
 <div class="match-stage" id="match-stage">
 <div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
 <div class="arena">
@@ -201,6 +222,8 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <h2 id="title">Own the puck</h2>
 <p id="message" hidden></p>
 <button class="primary" id="replay">Open Online</button>
+<button class="subtle" id="opponent-profile" hidden>Opponent profile</button><button class="subtle" id="add-opponent" hidden>Add friend</button>
+<button class="subtle" id="duel-rematch" hidden>Rematch</button>
 <button class="subtle" id="result-shop" hidden>Shop</button>
 </div>
 </div>
@@ -211,7 +234,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <dialog id="lobby-dialog">
   <header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
   <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
-  <p>Ranked 1v1 costs <strong>30 Arena Coins</strong> to enter. The winner receives <strong>60 Arena Coins</strong>. War Zone and friend rooms are free to enter.</p>
+  <p>Ranked 1v1 costs <strong>30 Arena Coins</strong> to enter. The winner receives <strong>60 Arena Coins</strong>. War Zone costs 50 coins per player. Friend rooms are free to enter.</p>
   <div class="lobby-actions">
     <button id="ranked" class="primary"><span>Ranked Game</span><small>Skill-based 1v1 · Equal magnet stats</small></button>
     <button id="warzone"><span>War Zone</span><small>5 vs 5 · Equal magnet stats</small></button>
@@ -226,7 +249,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <header><h2>Player profile</h2><button data-close="account-dialog">Close</button></header>
   <div class="profile-card"><span class="profile-icon" aria-hidden="true">✦</span><div><strong id="account-summary">Connecting…</strong><small id="account-kind"></small></div></div>
   <div id="account-choices" class="account-actions">
-    <button id="clear-blocks" type="button" hidden>Clear blocked players</button><button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
+    <button id="account-stats" type="button">Stats</button><button id="account-medals" type="button">Medals</button><button id="clear-blocks" type="button" hidden>Clear blocked players</button><button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
     <button id="register-account" class="primary">Save with email</button>
     <button id="login-account">Sign in to another account</button>
     <button id="switch-account" hidden>Switch to guest</button>
@@ -296,17 +319,42 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <header><h2 id="privacy-title">PuckVolt privacy notice</h2><button data-close="privacy-dialog">Close</button></header>
 <p>PuckVolt is operated by <strong>Yash Patel</strong>, also known as Paul0017. Use <a href="/support">PuckVolt Support</a> for privacy or account questions.</p>
 <p>PuckVolt stores a browser and profile identifier, player name, match ratings, balances and unlocks to run the game and restore progress. If you register with email, we store the email and a salted password hash. Your player name is shown to others during matches. The service uses connection information to run matches and limit abuse.</p>
-<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made. A player block stores a one-way identifier to prevent future matches with that player.</p>
+<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made. A player block stores a one-way identifier to prevent future matches with that player. Your player stats, selected country, and leaderboard position can be visible to other players. The game also saves friend connections and shows your online status to friends.</p>
 <p>Profile data is kept while the account exists. Delete it from Account, or visit the <a href="/account-deletion">account deletion page</a>. An opaque deletion marker prevents stale writes from restoring the profile. Aggregated tactic statistics remain after deletion. Hosting providers may retain operational logs and backups under their own retention schedules.</p>
 <p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements. For privacy questions, use <a href="/support">PuckVolt Support</a>. Support requests include the email and message you supply so the operator can respond. Support requests and name reports are scheduled for removal from active storage after 90 days. A name restriction can remain in effect after the original report is removed.</p>
 </dialog>
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
-<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone and friend rooms are free to enter.</p>
+<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone charges 50 coins per player and divides a 500-coin prize among the winning team members still in the match. Friend rooms are free to enter.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>
 
+
+
+<dialog id="social-dialog" aria-labelledby="social-title">
+<header><h2 id="social-title">Player profile</h2><button data-close="social-dialog">Close</button></header>
+<nav class="row"><button id="social-stats">Stats</button><button id="social-friends">Friends</button><button id="social-board">Rankings</button><button id="social-medals">Medals</button></nav>
+<section id="social-filter" hidden>
+<label>Period <select id="board-period"><option value="lifetime">Lifetime</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+<label>Region <select id="board-region"><option value="world">World</option><option value="country">My country</option></select></label>
+<div class="row"><button id="board-prev">Previous 100</button><button id="board-next">Next 100</button></div>
+</section>
+<form id="country-form" hidden><label for="country-code">Country (two-letter code)</label> <input id="country-code" maxlength="2" placeholder="US"><button>Save country</button></form>
+<div id="social-content"></div>
+<p id="social-message" role="status"></p>
+</dialog>
+<dialog id="medal-dialog" aria-labelledby="medal-title">
+<p class="medal-emblem" aria-hidden="true">★</p>
+<h2 id="medal-title">Medal earned</h2><p id="medal-message"></p>
+<button id="medal-dismiss" class="primary">Continue</button>
+</dialog>
+<dialog id="leave-dialog" aria-labelledby="leave-title">
+<header><h2 id="leave-title">Leave this match?</h2></header>
+<p>Leaving a live match forfeits your entry and any prize.</p>
+<div class="row"><button data-close="leave-dialog">Keep playing</button><button id="confirm-leave">Leave match</button></div>
+<p id="leave-message" role="status"></p>
+</dialog>
 <dialog id="support-dialog" aria-labelledby="support-title">
 <header><h2 id="support-title">PuckVolt Support</h2><button data-close="support-dialog">Close</button></header>
 <p>Use this form for account help, privacy questions, or to report a problem. Do not include passwords or payment details.</p>

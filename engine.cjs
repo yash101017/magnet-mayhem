@@ -469,10 +469,11 @@ function runWarTeam(game,team,inputs,dt){
   const attackGoal=team===0?wall:H-wall
   const attackOrder=game.craft.slice(first,end).map((craft,index)=>({
     seat:first+index,distance:distance(craft,puck)
-  })).sort((a,b)=>a.distance-b.distance)
+  })).filter(entry=>!game.craft[entry.seat].inactive).sort((a,b)=>a.distance-b.distance)
   const firstBot=attackOrder.find(entry=>game.bots?.[entry.seat])?.seat
   const secondBot=attackOrder.find(entry=>entry.seat!==firstBot&&game.bots?.[entry.seat])?.seat
   for(let seat=first;seat<end;seat++){
+    if(game.craft[seat].inactive)continue
     const config=game.bots?.[seat]
     if(!config){applyInput(game,seat,inputs[seat]||neutralInput,dt);continue}
     const ship=game.craft[seat], ai=difficulties[config.difficulty]
@@ -563,7 +564,8 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
     if(game.mode==='bot')runAI(game,dt)
     else if(!solo)applyInput(game,1,inputs[1]||neutralInput,dt)
   }
-  const craft=solo?[game.craft[0]]:game.craft
+  const activeCraft=solo?[0]:game.craft.map((_,seat)=>seat).filter(seat=>!game.craft[seat].inactive)
+  const craft=activeCraft.map(seat=>game.craft[seat])
   const puck=game.puck, bumpers=activeField(game).bumpers
   for(let pass=0;pass<3;pass++){
     for(let first=0;first<craft.length-1;first++)for(let second=first+1;second<craft.length;second++)
@@ -574,7 +576,8 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
     }
   }
   let impact=0
-  for(const [seat,body] of craft.entries()){
+  for(const seat of activeCraft){
+    const body=game.craft[seat]
     avoidOwnGoalContact(game,seat,botPositions[seat])
     const impulse=separate(body,puck,23,0,1,.26)||0
     if(impulse>impact)impact=impulse

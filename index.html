@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0a0c18">
 <title>PuckVolt</title>
 <style>
@@ -168,6 +168,23 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 #shop-message:not(:empty){padding:8px 0;color:#c4f4ef}
 @media(max-width:420px){.market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
+html,body{-webkit-text-size-adjust:100%;touch-action:pan-y}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+#home-view:not([hidden]){display:flex;flex-direction:column;min-height:calc(100dvh - 90px)}
+.legal-footer{margin-top:auto;padding:20px 4px 8px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px;font-size:.78rem}
+.legal-footer a{color:var(--muted)}
+.social-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.social-online{color:var(--mint)}.social-offline{color:var(--rose)}.medal-locked{opacity:.5}.medal-emblem{font-size:3rem;color:#ffda79;margin:0;text-align:center}
+#series-score{display:block;text-align:center;color:var(--mint)}
+#match-departure{margin:3px 0;font-size:.78rem;color:var(--muted)}
+@media(pointer:coarse){
+  #match-view{min-height:calc(100dvh - 64px)}
+  .match-stage{--action-size:clamp(43px,11vw,58px);gap:4px;min-height:calc(100dvh - 160px)}
+  .match-stage .arena{width:min(100%,calc(max(230px,100dvh - 140px)*.6923))}
+  .match-nav button{padding:4px 7px;min-height:34px;font-size:.76rem}
+}
+
 </style>
 </head>
 <body>
@@ -187,12 +204,16 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
       <button id="shop"><span>Shop</span><small>Ships, effects and trails</small></button>
     </div>
   </div>
-  <div class="row"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></div><div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><b id="refill-clock">Connecting…</b></div>
+<div class="reward-clock"><div><strong>Hourly refill</strong><small>+100 Arena Coins</small></div><button id="claim-coins" disabled>Sign in</button></div>
   <button id="featured-pack" class="featured"><canvas class="pack-mark gem-icon" data-diamond width="72" height="72" aria-hidden="true"></canvas><span><strong>Diamond Exchange</strong><small>Trade Arena Coins for diamonds</small></span></button>
+  <div class="reward-clock"><div><strong>Daily diamonds</strong><small>+20 diamonds</small></div><button id="claim-diamonds" disabled>Sign in</button></div>
+  <div class="row"><button id="open-friends">Friends</button><button id="open-board">Leaderboards</button><button id="open-medals">Medals</button></div>
+  <p id="claim-message" role="status"></p>
+  <footer class="legal-footer"><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms of play</a><a href="/account-deletion">Delete account</a></footer>
 </section>
 <section id="match-view" hidden>
-<div class="match-nav"><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
-<div class="score"><span id="score0">YOU 0</span><span id="status" aria-live="polite">First to 3</span><span id="score1">0</span></div>
+<div class="match-nav"><button id="report-name" hidden>Report or block</button><span id="ping-display" class="ping-display" hidden>Ping —</span><button id="leave-match" hidden>Leave match</button><button id="home-after-match" hidden>Home</button><button id="control-side" aria-label="Switch action buttons to the right">Buttons: Left</button><button id="lobby">Online</button></div>
+<p id="match-departure" role="status" hidden></p><div class="score"><span id="score0">YOU 0</span><span><span id="status" aria-live="polite">First to 3</span><small id="series-score" hidden></small></span><span id="score1">0</span></div>
 <div class="match-stage" id="match-stage">
 <div class="magnet-buttons" role="group" aria-label="Magnet actions"><button type="button" id="push"><span>Push</span><small id="push-time" class="action-time" hidden></small></button><button type="button" id="pull"><span>Pull</span><small id="pull-time" class="action-time" hidden></small></button></div>
 <div class="arena">
@@ -201,6 +222,8 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <h2 id="title">Own the puck</h2>
 <p id="message" hidden></p>
 <button class="primary" id="replay">Open Online</button>
+<button class="subtle" id="opponent-profile" hidden>Opponent profile</button><button class="subtle" id="add-opponent" hidden>Add friend</button>
+<button class="subtle" id="duel-rematch" hidden>Rematch</button>
 <button class="subtle" id="result-shop" hidden>Shop</button>
 </div>
 </div>
@@ -211,7 +234,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <dialog id="lobby-dialog">
   <header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
   <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
-  <p>Ranked 1v1 costs <strong>30 Arena Coins</strong> to enter. The winner receives <strong>60 Arena Coins</strong>. War Zone and friend rooms are free to enter.</p>
+  <p>Ranked 1v1 costs <strong>30 Arena Coins</strong> to enter. The winner receives <strong>60 Arena Coins</strong>. War Zone costs 50 coins per player. Friend rooms are free to enter.</p>
   <div class="lobby-actions">
     <button id="ranked" class="primary"><span>Ranked Game</span><small>Skill-based 1v1 · Equal magnet stats</small></button>
     <button id="warzone"><span>War Zone</span><small>5 vs 5 · Equal magnet stats</small></button>
@@ -226,7 +249,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
   <header><h2>Player profile</h2><button data-close="account-dialog">Close</button></header>
   <div class="profile-card"><span class="profile-icon" aria-hidden="true">✦</span><div><strong id="account-summary">Connecting…</strong><small id="account-kind"></small></div></div>
   <div id="account-choices" class="account-actions">
-    <button id="clear-blocks" type="button" hidden>Clear blocked players</button><button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
+    <button id="account-stats" type="button">Stats</button><button id="account-medals" type="button">Medals</button><button id="clear-blocks" type="button" hidden>Clear blocked players</button><button id="delete-account" type="button">Delete account</button><button id="rename-account">Edit player name</button>
     <button id="register-account" class="primary">Save with email</button>
     <button id="login-account">Sign in to another account</button>
     <button id="switch-account" hidden>Switch to guest</button>
@@ -296,17 +319,42 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <header><h2 id="privacy-title">PuckVolt privacy notice</h2><button data-close="privacy-dialog">Close</button></header>
 <p>PuckVolt is operated by <strong>Yash Patel</strong>, also known as Paul0017. Use <a href="/support">PuckVolt Support</a> for privacy or account questions.</p>
 <p>PuckVolt stores a browser and profile identifier, player name, match ratings, balances and unlocks to run the game and restore progress. If you register with email, we store the email and a salted password hash. Your player name is shown to others during matches. The service uses connection information to run matches and limit abuse.</p>
-<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made. A player block stores a one-way identifier to prevent future matches with that player.</p>
+<p>Render hosts the game and Cloudflare stores profiles and reports. Completed matches with bots supply aggregate tactic statistics, without a player name or account identifier in the learning records. A name report stores the reported name and when the report was made. A player block stores a one-way identifier to prevent future matches with that player. Your player stats, selected country, and leaderboard position can be visible to other players. The game also saves friend connections and shows your online status to friends.</p>
 <p>Profile data is kept while the account exists. Delete it from Account, or visit the <a href="/account-deletion">account deletion page</a>. An opaque deletion marker prevents stale writes from restoring the profile. Aggregated tactic statistics remain after deletion. Hosting providers may retain operational logs and backups under their own retention schedules.</p>
 <p>Online profiles are intended for people 13 and older. PuckVolt does not currently sell diamonds or run advertisements. For privacy questions, use <a href="/support">PuckVolt Support</a>. Support requests include the email and message you supply so the operator can respond. Support requests and name reports are scheduled for removal from active storage after 90 days. A name restriction can remain in effect after the original report is removed.</p>
 </dialog>
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
-<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone and friend rooms are free to enter.</p>
+<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone charges 50 coins per player and divides a 500-coin prize among the winning team members still in the match. Friend rooms are free to enter.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>
 
+
+
+<dialog id="social-dialog" aria-labelledby="social-title">
+<header><h2 id="social-title">Player profile</h2><button data-close="social-dialog">Close</button></header>
+<nav class="row"><button id="social-stats">Stats</button><button id="social-friends">Friends</button><button id="social-board">Rankings</button><button id="social-medals">Medals</button></nav>
+<section id="social-filter" hidden>
+<label>Period <select id="board-period"><option value="lifetime">Lifetime</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+<label>Region <select id="board-region"><option value="world">World</option><option value="country">My country</option></select></label>
+<div class="row"><button id="board-prev">Previous 100</button><button id="board-next">Next 100</button></div>
+</section>
+<form id="country-form" hidden><label for="country-code">Country (two-letter code)</label> <input id="country-code" maxlength="2" placeholder="US"><button>Save country</button></form>
+<div id="social-content"></div>
+<p id="social-message" role="status"></p>
+</dialog>
+<dialog id="medal-dialog" aria-labelledby="medal-title">
+<p class="medal-emblem" aria-hidden="true">★</p>
+<h2 id="medal-title">Medal earned</h2><p id="medal-message"></p>
+<button id="medal-dismiss" class="primary">Continue</button>
+</dialog>
+<dialog id="leave-dialog" aria-labelledby="leave-title">
+<header><h2 id="leave-title">Leave this match?</h2></header>
+<p>Leaving a live match forfeits your entry and any prize.</p>
+<div class="row"><button data-close="leave-dialog">Keep playing</button><button id="confirm-leave">Leave match</button></div>
+<p id="leave-message" role="status"></p>
+</dialog>
 <dialog id="support-dialog" aria-labelledby="support-title">
 <header><h2 id="support-title">PuckVolt Support</h2><button data-close="support-dialog">Close</button></header>
 <p>Use this form for account help, privacy questions, or to report a problem. Do not include passwords or payment details.</p>
@@ -791,10 +839,11 @@ function runWarTeam(game,team,inputs,dt){
   const attackGoal=team===0?wall:H-wall
   const attackOrder=game.craft.slice(first,end).map((craft,index)=>({
     seat:first+index,distance:distance(craft,puck)
-  })).sort((a,b)=>a.distance-b.distance)
+  })).filter(entry=>!game.craft[entry.seat].inactive).sort((a,b)=>a.distance-b.distance)
   const firstBot=attackOrder.find(entry=>game.bots?.[entry.seat])?.seat
   const secondBot=attackOrder.find(entry=>entry.seat!==firstBot&&game.bots?.[entry.seat])?.seat
   for(let seat=first;seat<end;seat++){
+    if(game.craft[seat].inactive)continue
     const config=game.bots?.[seat]
     if(!config){applyInput(game,seat,inputs[seat]||neutralInput,dt);continue}
     const ship=game.craft[seat], ai=difficulties[config.difficulty]
@@ -885,7 +934,8 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
     if(game.mode==='bot')runAI(game,dt)
     else if(!solo)applyInput(game,1,inputs[1]||neutralInput,dt)
   }
-  const craft=solo?[game.craft[0]]:game.craft
+  const activeCraft=solo?[0]:game.craft.map((_,seat)=>seat).filter(seat=>!game.craft[seat].inactive)
+  const craft=activeCraft.map(seat=>game.craft[seat])
   const puck=game.puck, bumpers=activeField(game).bumpers
   for(let pass=0;pass<3;pass++){
     for(let first=0;first<craft.length-1;first++)for(let second=first+1;second<craft.length;second++)
@@ -896,7 +946,8 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
     }
   }
   let impact=0
-  for(const [seat,body] of craft.entries()){
+  for(const seat of activeCraft){
+    const body=game.craft[seat]
     avoidOwnGoalContact(game,seat,botPositions[seat])
     const impulse=separate(body,puck,23,0,1,.26)||0
     if(impulse>impact)impact=impulse
@@ -948,10 +999,11 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
-let coins=0,diamonds=0,gear=[],refillDeadline=null,nextRefillCheck=0
+let coins=0,diamonds=0,gear=[],refillDeadline=null,diamondDeadline=null,claimBusy=false,nextProfileRetry=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
 let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let blockedCount=0
+let socialMode=null,boardOffset=0,lastPresence=0,medalQueue=[],medalMatch=null
 let guestMode=true, accountEmail=null, profileRequest=null, profileError=''
 let pos=null, frameTime=performance.now(), snapshotArrival=0, lastHud=0, lastSync=0
 let goalArt=null
@@ -1050,6 +1102,14 @@ function startPractice(style=shipStyle,effect=cosmetic,trail=trailStyle){
 function goReplay(){
   if(practicing){startPractice(practiceShip,practiceEffect,practiceTrail);return}
   if(menu){openLobby();return}
+  if(online.connection&&!online.ranked){
+    const connection=online.connection
+    api('/room',{action:'leave',token:connection.token}).then(()=>{resetOnline();openLobby()}).catch(error=>{
+      if(online.state)online.state.notice=error.message
+      renderHud()
+    })
+    return
+  }
   if(online.connection){
     online.rematch=true
     renderHud()
@@ -1208,9 +1268,13 @@ function write(id,text){
 }
 function renderHud(){
   write('coin-total',coins+' coins')
-  const remaining=refillDeadline===null?null:Math.max(0,Math.ceil((refillDeadline-performance.now())/1000))
-  write('refill-clock',remaining===null?'Choose a profile':remaining===0?'Refilling?':
-    String(Math.floor(remaining/60)).padStart(2,'0')+':'+String(remaining%60).padStart(2,'0'))
+  for(const [id,deadline] of [['claim-coins',refillDeadline],['claim-diamonds',diamondDeadline]]){
+    const remaining=deadline===null?null:Math.max(0,Math.ceil((deadline-performance.now())/1000))
+    $(id).disabled=claimBusy||remaining!==0
+    const clock=remaining===null?'Play online to unlock':remaining===0?'Collect':
+      [Math.floor(remaining/3600),Math.floor(remaining/60)%60,remaining%60].map(value=>String(value).padStart(2,'0')).join(':')
+    write(id,clock)
+  }
   $('game-root').dataset.match=String(!menu)
   write('home-player',username||(profileError?'Profile unavailable':!profile&&!ageConfirmed?'Online play is 13+':'Loading profile…'))
   $('home-view').hidden=!menu
@@ -1243,6 +1307,19 @@ function renderHud(){
   ping.dataset.quality=!freshPing?'unknown':pingMs>=150?'poor':pingMs>=80?'fair':'good'
   $('overlay').hidden=!overlay
   $('match-stage').dataset.overlay=String(overlay)
+  $('leave-match').hidden=menu||!online.connection||game.phase==='over'&&Boolean(online.matchId)
+  const series=online.state?.series
+  $('series-score').hidden=!series||series[0]+series[1]<1||game.phase==='over'
+  if(series)write('series-score','Rematch '+series[online.seat]+'/'+series[1-online.seat])
+  const duel=$('duel-rematch')
+  const offer=online.state?.duelOffer
+  duel.hidden=game.phase!=='over'||!online.state?.duel
+  duel.disabled=offer===online.seat
+  write('duel-rematch',offer===undefined?'Rematch':offer===online.seat?'Waiting for opponent':'Accept rematch')
+  $('opponent-profile').hidden=game.phase!=='over'||!online.state?.opponent
+  $('add-opponent').hidden=$('opponent-profile').hidden
+  $('match-departure').hidden=!online.state?.departure
+  write('match-departure',online.state?.departure||'')
   $('home-after-match').hidden=menu||!practicing&&game.phase!=='over'
   if(menu){
     showOverlay(fields[currentField].name,'','Play online',false)
@@ -1257,11 +1334,13 @@ function renderHud(){
       const change=online.state.result.coins
       message+=' · '+(change>0?'+':'')+change+' Arena Coins'
     }
-    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · 30 Arena Coins entry'
+    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · '+online.state.result.entry+' Arena Coins entry'
+    if(online.state?.duelMessage)message+=' · '+online.state.duelMessage
+    if(online.state?.duelOffer!==undefined&&online.state.duelOffer!==online.seat)message+=' · You have a rematch challenge.'
     if(online.state?.notice)message+=' · '+online.state.notice
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
-    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
+    const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.connection?'Find another match':'Play again'
     showOverlay(title,message,replay,true)
   }
   const craft=game.craft[seat]
@@ -1472,6 +1551,7 @@ function paintTrail(g,style,points,now,color,scale=1){
 function drawShipTrails(count,now){
   if(menu||game.phase!=='play'){shipTracks=[];return}
   for(let seat=0;seat<count;seat++){
+    if(game.craft[seat].inactive){shipTracks[seat]=[];continue}
     const ship=pos[seat]
     let track=shipTracks[seat]??=[]
     const last=track.at(-1)
@@ -1534,6 +1614,7 @@ function draw(dt){
   const visibleShips=solo?1:game.craft.length
   drawShipTrails(visibleShips,performance.now()/1000)
   for(let seat=0;seat<visibleShips;seat++){
+    if(game.craft[seat].inactive)continue
     const ship=pos[seat], shipColor=game.craft[seat].color
     const rotation=menu?0:performance.now()*.0017+seat*.35
     if(seat===online.seat&&game.mode==='warzone')ring(ship.x,ship.y,18,'#f4fff9',2)
@@ -1570,15 +1651,25 @@ function inputState(){
 function frame(now){
   const dt=clamp((now-frameTime)/1000,0,.05)
   frameTime=now
-  if(pointer&&(game.phase!=='play'||pointer.active===false&&now>=pointer.until))pointer=null
+  if(pointer&&(game.phase==='over'||pointer.active===false&&now>=pointer.until))pointer=null
   if(practicing&&!anyDialog()){
     const input=inputState()
+    const previousPhase=game.phase
     practiceBank+=dt
     while(practiceBank>=stepSeconds){step(game,[input]);practiceBank-=stepSeconds}
+    if(previousPhase!=='play'&&game.phase==='play')rebasePointer()
   }
-  if(username&&refillDeadline!==null&&now>=refillDeadline&&now>=nextRefillCheck){
-    nextRefillCheck=now+4000
+  if(menu&&!username&&(profile||ageConfirmed)&&!profileRequest&&now>=nextProfileRetry&&
+    pagePath==='/'&&location.protocol!=='file:'){
+    nextProfileRetry=now+12000
     refreshProfile()
+  }
+  if(username&&now-lastPresence>25000){
+    lastPresence=now
+    if($('social-dialog').open&&socialMode==='friends')loadSocial('friends')
+    else api('/social',{action:'presence',profile}).then(state=>{
+      write('open-friends',state.invite?'Friends · Invite':'Friends')
+    }).catch(()=>{})
   }
   syncMatchMusic()
   renderEvent()
@@ -1590,7 +1681,7 @@ $('match-view').addEventListener('contextmenu',event=>event.preventDefault())
 $('match-view').addEventListener('selectstart',event=>event.preventDefault())
 $('match-view').addEventListener('dblclick',event=>event.preventDefault())
 function blockMatchZoom(event){
-  if(document.documentElement.dataset.gameLocked==='true'&&event.cancelable)event.preventDefault()
+  if(event.cancelable)event.preventDefault()
 }
 for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,blockMatchZoom,{passive:false})
 let lastActionTap=0
@@ -1601,7 +1692,14 @@ $('match-view').addEventListener('touchend',event=>{
   lastActionTap=now
 },{passive:false})
 const steerSurface=$('match-view')
+function rebasePointer(){
+  if(!pointer?.active||!pointer.relative)return
+  const craft=game.craft[online.seat]
+  Object.assign(pointer,{originX:craft.x,originY:craft.y,x:craft.x,y:craft.y,startX:pointer.lastX,startY:pointer.lastY})
+}
 function movePointer(event){
+  pointer.lastX=event.clientX
+  pointer.lastY=event.clientY
   if(pointer.relative){
     pointer.x=clamp(pointer.originX+(event.clientX-pointer.startX)*pointer.scaleX,0,W)
     pointer.y=clamp(pointer.originY+(event.clientY-pointer.startY)*pointer.scaleY,0,H)
@@ -1612,8 +1710,8 @@ function movePointer(event){
   pointer.y=clamp((event.clientY-rect.top)*H/rect.height,0,H)
 }
 steerSurface.addEventListener('pointerdown',event=>{
-  if(event.button!==0||menu||game.phase!=='play'||pointer?.active||anyDialog())return
-  if(event.target.closest('button, a, input, select, .overlay'))return
+  if(event.button!==0||menu||game.phase==='over'&&!online.connection||pointer?.active||anyDialog())return
+  if(event.target.closest('button, a, input, select')||online.matchId&&game.phase==='over')return
   const relative=event.pointerType==='touch'||event.pointerType==='pen'
   if(!relative&&event.target!==canvas)return
   const rect=canvas.getBoundingClientRect()
@@ -1679,7 +1777,7 @@ for(const button of document.querySelectorAll('[data-close]'))button.addEventLis
 async function api(route,data){
   if(location.protocol==='file:')throw new Error('Online play is unavailable in this copy.')
   const controller=new AbortController()
-  const timer=setTimeout(()=>controller.abort(),3600)
+  const timer=setTimeout(()=>controller.abort(),route==='/account'?18000:6500)
   try{
     const response=await fetch(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal})
       .catch(()=>{throw new Error('Connection lost. Try again.')})
@@ -1701,6 +1799,7 @@ function applyProfile(data){
     diamonds=0
     gear=[]
     refillDeadline=null
+    diamondDeadline=null
     ownsPack=false
     cosmetic='classic'
     shipStyle='classic'
@@ -1720,6 +1819,7 @@ function applyProfile(data){
   blockedCount=data.blockedCount||0
   coins=data.coins||0
   diamonds=data.diamonds||0
+  diamondDeadline=Number.isFinite(data.diamondRefillIn)?performance.now()+data.diamondRefillIn:null
   refillDeadline=Number.isFinite(data.refillIn)?performance.now()+data.refillIn:null
   gear=data.gear||[]
   ownsPack=data.ownsPack
@@ -1739,6 +1839,7 @@ function guestDevice(){
   return id
 }
 async function refreshProfile(){
+  nextProfileRetry=performance.now()+12000
   if(location.protocol==='file:'||pagePath==='/account-deletion'&&!profile||!profile&&!ageConfirmed)return
   if(profileRequest)return profileRequest
   profileRequest=(async()=>{
@@ -1956,6 +2057,11 @@ function applyOnlineState(state){
   if(state.notice)online.rematch=false
   if(Number.isFinite(state.balance))coins=state.balance
   if(state.notice)cachedStatus=state.notice
+  if(state.result?.medals?.length&&medalMatch!==state.matchId){
+    medalMatch=state.matchId
+    medalQueue.push(...state.result.medals)
+    showNextMedal()
+  }
   if(!state.game){
     if(online.rematch&&state.queued){
       online.matchId=null
@@ -1965,17 +2071,22 @@ function applyOnlineState(state){
     return
   }
   if(state.matchId!==online.matchId){
+    const heldPointer=pointer?.active?pointer:null
     clearPlayState()
+    pointer=heldPointer
     online.matchId=state.matchId
     online.seat=state.seat
     online.rematch=false
     game=state.game
+    rebasePointer()
     $('field-picker').value=String(game.field)
     write('room-message','You are '+(teamOf(game,state.seat)===0?'cyan. Aim for the pink goal.':'pink. Aim for the cyan goal.'))
     closeDialog('lobby-dialog')
   }else{
     if(game.phase!=='serve'&&state.game.phase==='serve'){pos=null;localPose=null}
+    const previousPhase=game.phase
     game=state.game
+    if(previousPhase!=='play'&&game.phase==='play')rebasePointer()
   }
   snapshotArrival=performance.now()
   if(online.rematch&&state.queued){
@@ -2044,6 +2155,31 @@ $('home-after-match').addEventListener('click',async()=>{
   resetOnline()
   if(connection)try{await api('/room',{action:'leave',token:connection.token})}catch{}
   refreshProfile()
+})
+$('leave-match').addEventListener('click',()=>{
+  write('leave-message','')
+  showDialog('leave-dialog')
+})
+$('confirm-leave').addEventListener('click',async()=>{
+  if(!online.connection)return
+  $('confirm-leave').disabled=true
+  try{
+    await api('/room',{action:'leave',token:online.connection.token})
+    closeDialog('leave-dialog')
+    resetOnline()
+    await refreshProfile()
+  }catch(error){write('leave-message',error.message)}
+  finally{$('confirm-leave').disabled=false}
+})
+for(const action of ['claim-coins','claim-diamonds'])$(action).addEventListener('click',async()=>{
+  if(claimBusy||!profile)return
+  claimBusy=true
+  renderHud()
+  try{
+    applyProfile(await api('/account',{action,profile}))
+    write('claim-message',action==='claim-coins'?'Collected 100 Arena Coins.':'Collected 20 diamonds.')
+  }catch(error){write('claim-message',error.message)}
+  finally{claimBusy=false;renderHud()}
 })
 $('host').addEventListener('click',()=>connect('host'))
 $('ranked').addEventListener('click',()=>connect('rank'))
@@ -2278,7 +2414,20 @@ function showShop(page='ship'){
   setShopPage(page)
 }
 $('shop').addEventListener('click',()=>showShop())
-$('result-shop').addEventListener('click',()=>showShop())
+$('result-shop').addEventListener('click',async()=>{
+  if(online.connection)try{await api('/room',{action:'decline-rematch',token:online.connection.token})}catch{}
+  showShop()
+})
+$('duel-rematch').addEventListener('click',async()=>{
+  if(!online.connection)return
+  try{
+    await api('/room',{action:'duel-rematch',token:online.connection.token})
+    syncOnline(true)
+  }catch(error){
+    if(online.state)online.state.notice=error.message
+    renderHud()
+  }
+})
 $('featured-pack').addEventListener('click',()=>showShop('diamonds'))
 for(const tab of document.querySelectorAll('[data-market]'))tab.addEventListener('click',()=>setShopPage(tab.dataset.market))
 $('shop-action').addEventListener('click',()=>shopAction(selectedPreview))
@@ -2375,6 +2524,133 @@ $('send-report').addEventListener('click',async()=>{
     write('report-message','Report submitted.')
   }catch(error){write('report-message',error.message)}
   finally{$('send-report').disabled=false}
+})
+function showNextMedal(){
+  const medal=medalQueue.shift()
+  if(!medal){closeDialog('medal-dialog');return}
+  write('medal-title',medal.name)
+  const messages={
+    duel:'You earned this in Ranked. Keep sharpening your next shot.',
+    war:'Your team made it count. Take that momentum into the next round.',
+    friendly:'You earned this in a friend match. Keep the rivalry going.',
+    played:'Every match adds up. Your next milestone is waiting.',
+    streak:'You kept the wins coming. See how far you can take the streak.'
+  }
+  write('medal-message','Congratulations on '+medal.name+'! '+(messages[medal.key]||'You earned a place on the leaderboard.')+' '+medal.instruction+'.')
+  showDialog('medal-dialog')
+}
+$('medal-dismiss').addEventListener('click',showNextMedal)
+$('medal-dialog').addEventListener('click',event=>{if(event.target===$('medal-dialog'))showNextMedal()})
+function socialItem(label,detail='',action='',handler=null,style=''){
+  const row=document.createElement('div')
+  row.className='social-row '+style
+  const text=document.createElement('span')
+  text.textContent=detail?label+' · '+detail:label
+  row.append(text)
+  if(action){
+    const button=document.createElement('button')
+    button.type='button'
+    button.textContent=action
+    button.addEventListener('click',handler)
+    row.append(button)
+  }
+  $('social-content').append(row)
+}
+function statLine(data){
+  const count=data?.played||0,wins=data?.wins||0
+  return count+' played · '+wins+' wins · '+(count-wins)+' losses · '+(count?Math.round(wins*100/count):0)+'% wins'
+}
+function renderPlayerStats(player,ranks){
+  socialItem(player.name,player.country||'')
+  socialItem('Ranked 1v1',statLine(player.duel))
+  socialItem('War Zone',statLine(player.war))
+  socialItem('Friend matches',statLine(player.friendMatches))
+  socialItem('Rating',String(player.rating))
+  if(ranks){
+    for(const [key,label] of [['lifetime','Lifetime rank'],['weekly','Weekly rank'],['monthly','Monthly rank']])
+      socialItem(label,ranks[key]?'#'+ranks[key]:'Unranked')
+    socialItem('Friends rank',ranks.friendly?'#'+ranks.friendly:'Add 10 friends to unlock')
+  }
+  socialItem('Weekly world top 10',String(player.weeklyTop))
+  socialItem('Monthly world top 10',String(player.monthlyTop))
+}
+async function socialRequest(action,extra={}){
+  return api('/social',{profile,action,...extra})
+}
+async function loadSocial(mode,name){
+  if(!profile){write('social-message','Play online to create a player profile.');return}
+  socialMode=mode
+  const requestMode=mode
+  write('social-message','')
+  try{
+    const data=mode==='board'?await socialRequest('leaderboard',{kind:$('board-period').value,region:$('board-region').value,offset:boardOffset}):
+      mode==='opponent'?await socialRequest('profile',{name}):await socialRequest('summary')
+    if(socialMode!==requestMode)return
+    $('social-content').replaceChildren()
+    $('social-filter').hidden=mode!=='board'
+    $('country-form').hidden=mode!=='stats'
+    if(mode==='stats'||mode==='opponent'){
+      if(mode==='stats')$('country-code').value=data.player.country||''
+      renderPlayerStats(data.player,data.ranks)
+    }else if(mode==='medals'){
+      const earned=new Set(data.player.medals)
+      socialItem(earned.size+' of '+data.medalCatalog.length+' medals earned')
+      for(const medal of data.medalCatalog)socialItem(earned.has(medal.id)?'★ '+medal.name:medal.name,
+        earned.has(medal.id)?'Earned':medal.instruction,'',null,earned.has(medal.id)?'':'medal-locked')
+    }else if(mode==='board'){
+      $('board-prev').disabled=boardOffset===0
+      $('board-next').disabled=!data.more
+      if(!data.rows.length)socialItem('No ranked players yet')
+      for(const row of data.rows)socialItem('#'+row.rank+' '+row.name,String(row.points))
+    }else{
+      if(data.invite)socialItem(data.invite.from+' invited you','','Join',()=>{
+        $('room-input').value=data.invite.code
+        closeDialog('social-dialog')
+        connect('join')
+      })
+      for(const request of data.requests)socialItem(request,'Friend request','Accept',async()=>{
+        try{await socialRequest('friend-accept',{name:request});loadSocial('friends')}
+        catch(error){write('social-message',error.message)}
+      })
+      for(const friend of data.friends)socialItem('● '+friend.name,friend.online?'Online':'Offline',
+        friend.online?'Invite':'',async()=>{
+          try{
+            if(online.connection&&!online.connection.code)throw new Error('Return home before inviting a friend.')
+            if(!online.connection)await connect('host')
+            await socialRequest('invite',{name:friend.name})
+            write('social-message','Invitation sent.')
+          }catch(error){write('social-message',error.message)}
+        },friend.online?'social-online':'social-offline')
+      if(!data.friends.length&&!data.requests.length&&!data.invite)socialItem('Add friends after a match.')
+    }
+  }catch(error){write('social-message',error.message)}
+}
+function openSocial(mode,name){
+  closeDialog('account-dialog')
+  showDialog('social-dialog')
+  $('social-content').replaceChildren()
+  $('social-filter').hidden=true
+  $('country-form').hidden=true
+  loadSocial(mode,name)
+}
+for(const [id,mode] of [['open-friends','friends'],['open-board','board'],['open-medals','medals'],['account-stats','stats'],['account-medals','medals']])
+  $(id).addEventListener('click',()=>{boardOffset=0;openSocial(mode)})
+for(const mode of ['stats','friends','board','medals'])$('social-'+mode).addEventListener('click',()=>{boardOffset=0;loadSocial(mode)})
+for(const id of ['board-period','board-region'])$(id).addEventListener('change',()=>{boardOffset=0;loadSocial('board')})
+$('board-prev').addEventListener('click',()=>{boardOffset=Math.max(0,boardOffset-100);loadSocial('board')})
+$('board-next').addEventListener('click',()=>{boardOffset+=100;loadSocial('board')})
+$('country-form').addEventListener('submit',async event=>{
+  event.preventDefault()
+  try{await socialRequest('country',{country:$('country-code').value.trim()});loadSocial('stats')}
+  catch(error){write('social-message',error.message)}
+})
+$('opponent-profile').addEventListener('click',()=>openSocial('opponent',online.state?.opponent))
+$('add-opponent').addEventListener('click',async()=>{
+  try{
+    await socialRequest('friend-request',{name:online.state?.opponent})
+    if(online.state)online.state.notice='Friend request sent.'
+    renderHud()
+  }catch(error){if(online.state)online.state.notice=error.message;renderHud()}
 })
 $('support-form').addEventListener('submit',async(event)=>{
   event.preventDefault()
