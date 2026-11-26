@@ -1,9 +1,18 @@
 export default {
   async fetch(request, env) {
     const url=new URL(request.url)
-    if (!['/learning','/profiles'].includes(url.pathname)) return new Response(null,{status:404})
+    if (!['/learning','/profiles','/reports'].includes(url.pathname)) return new Response(null,{status:404})
     if (!env.LEARNING_TOKEN || request.headers.get('Authorization') !== 'Bearer '+env.LEARNING_TOKEN) {
       return new Response(null,{status:401})
+    }
+    if(url.pathname==='/reports'){
+      if(request.method!=='POST')return new Response(null,{status:405})
+      const report=await request.json().catch(()=>null)
+      if(!report||!/^[a-f0-9]{48}$/.test(report.id)||typeof report.name!=='string'||report.name.length>20||
+        !Number.isSafeInteger(report.created))return new Response(null,{status:400})
+      await env.LEARNING.prepare('INSERT OR IGNORE INTO name_reports(id,name,created) VALUES(?,?,?)')
+        .bind(report.id,report.name,report.created).run()
+      return new Response(null,{status:204})
     }
     if(url.pathname==='/profiles')return profiles(request,env,url)
     if (request.method === 'GET') {

@@ -22,3 +22,7 @@ CREATE TABLE IF NOT EXISTS player_profiles (
   revision INTEGER NOT NULL,
   profile TEXT NOT NULL CHECK(json_valid(profile))
 );
+
+CREATE TABLE IF NOT EXISTS name_reports (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER NOT NULL
+);

@@ -27,6 +27,7 @@ function saved(key,value){
   }catch{return null}
 }
 profile=saved('profile')
+const pagePath=location.pathname||'/'
 let soundEnabled=true
 function updateSoundControl(){
   write('sound',soundEnabled?'Sound off':'Sound on')
@@ -276,7 +277,12 @@ function renderHud(){
   const names=online.state?.names
   const war=game.mode==='warzone'
   const ownTeam=teamOf(game,seat)
-  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names||[username||'YOU',practicing?'Practice':'']
+  const bots=online.state?.bots||[]
+  const botCount=bots.filter(Boolean).length
+  $('bot-indicator').hidden=!botCount
+  write('bot-indicator',botCount+' '+(botCount===1?'bot':'bots')+' in match')
+  $('report-name').hidden=!online.matchId||!bots.some((bot,seat)=>!bot&&seat!==online.seat)
+  const tags=war?[ownTeam===0?'CYAN (YOU)':'CYAN',ownTeam===1?'PINK (YOU)':'PINK']:names?.map((name,seat)=>bots[seat]?name+' (Bot)':name)||[username||'YOU',practicing?'Practice Bot':'']
   write('score0',solo?(game.mode==='circuit'?'STAGE '+Math.min(game.stage+1,4)+'/4':'PRACTICE'):tags[0]+' '+game.score[0])
   write('score1',solo?game.elapsed.toFixed(1)+'s':(game.score[1]+' '+tags[1]).trim())
   const clock=Math.ceil(game.clock)
@@ -789,12 +795,12 @@ function guestDevice(){
   return id
 }
 async function refreshProfile(){
-  if(location.protocol==='file:')return
+  if(location.protocol==='file:'||pagePath==='/account-deletion'&&!profile||!profile&&saved('online-age-confirmed')!=='yes')return
   if(profileRequest)return profileRequest
   profileRequest=(async()=>{
     try{
       const savedGuest=saved('guest-profile')
-      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:guestDevice()})
+      const data=await api('/account',{action:'bootstrap',profile:profile||savedGuest,device:guestDevice(),ageConfirmed:saved('online-age-confirmed')==='yes'})
       profileError=''
       applyProfile(data)
     }catch{
@@ -806,6 +812,7 @@ async function refreshProfile(){
 function updateAccountCard(){
   write('account-summary',username||'Connecting to your profileâ€¦')
   write('account-kind',username?(guestMode?'Guest on this browser':accountEmail||'Signed-in player'):'')
+  $('delete-account').disabled=!username
   $('rename-account').disabled=!username
   $('register-account').hidden=Boolean(username&&!guestMode)
   $('switch-account').hidden=!username||guestMode
@@ -872,7 +879,7 @@ $('account-form').addEventListener('submit',async event=>{
     if(accountMode==='register'&&!username)await refreshProfile()
     if(accountMode==='register'&&!username)throw new Error(profileError||'Player profile unavailable.')
     const action=accountMode
-    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile}))
+    applyProfile(await api('/account',{action,username:$('username').value,email:$('email').value,password:$('password').value,profile,ageConfirmed:saved('online-age-confirmed')==='yes'}))
     $('password').value=''
     openAccount()
     write('account-message',action==='register'?'Account saved. Your progress is still here.':action==='rename'?'Player name updated.':'Signed in.')
@@ -902,6 +909,11 @@ function resetOnline(){
   setMenu()
 }
 async function connect(action){
+  if(!profile&&saved('online-age-confirmed')!=='yes'){
+    closeDialog('lobby-dialog')
+    showDialog('age-gate')
+    return
+  }
   unlockSound()
   if(online.connecting||online.connection)return
   if(!username)await refreshProfile()
@@ -1343,9 +1355,66 @@ async function shopAction(item){
   }catch(error){write('shop-message',error.message)}
   finally{shopBusy=false;updateShop()}
 }
+$('age-confirm').addEventListener('click',async()=>{
+  saved('online-age-confirmed','yes')
+  closeDialog('age-gate')
+  await refreshProfile()
+  openLobby()
+})
+$('delete-account').addEventListener('click',()=>{
+  $('delete-password-label').hidden=guestMode
+  $('delete-password').value=''
+  write('delete-message','')
+  showDialog('delete-dialog')
+})
+$('confirm-delete').addEventListener('click',async()=>{
+  if(online.connection&&activeMatch()){write('delete-message','Finish your match and return home first.');return}
+  $('confirm-delete').disabled=true
+  try{
+    if(online.connection){
+      await api('/room',{action:'leave',token:online.connection.token})
+      resetOnline()
+    }
+    if(profileRequest)await profileRequest
+    await api('/account',{action:'delete',profile,password:$('delete-password').value})
+    for(const key of ['guest-device','guest-profile','online-age-confirmed','ship-style','cosmetic','trail-style'])saved(key,'')
+    applyProfile({})
+    $('delete-password').value=''
+    closeDialog('delete-dialog')
+    updateAccountCard()
+    write('account-message','Your account was deleted.')
+  }catch(error){write('delete-message',error.message)}
+  finally{$('confirm-delete').disabled=false}
+})
+$('report-name').addEventListener('click',()=>{
+  const choices=$('report-seat')
+  choices.replaceChildren()
+  for(const [seat,name] of (online.state?.names||[]).entries()){
+    if(seat===online.seat||online.state.bots?.[seat])continue
+    const option=document.createElement('option')
+    option.value=String(seat)
+    option.textContent=name
+    choices.append(option)
+  }
+  write('report-message','')
+  showDialog('report-dialog')
+})
+$('send-report').addEventListener('click',async()=>{
+  $('send-report').disabled=true
+  try{
+    await api('/report',{token:online.connection?.token,seat:Number($('report-seat').value)})
+    write('report-message','Report submitted.')
+  }catch(error){write('report-message',error.message)}
+  finally{$('send-report').disabled=false}
+})
 setMenu()
 requestAnimationFrame(frame)
-refreshProfile()
+if(pagePath==='/privacy')showDialog('privacy-dialog')
+else if(pagePath==='/terms')showDialog('terms-dialog')
+else if(pagePath==='/account-deletion'){
+  openAccount()
+  if(!profile)write('account-message','Sign in to delete your account. Guest accounts can be deleted on the browser where they were created.')
+}else refreshProfile()
 
 
 

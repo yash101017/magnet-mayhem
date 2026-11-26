@@ -7,7 +7,7 @@ const {promisify}=require('node:util')
 const derive=promisify(scrypt)
 const opponentNames=require('./opponent-names.cjs')
 const starterDiamonds=25
-const stake=30
+const winReward=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
@@ -29,6 +29,7 @@ const profileRevisionKey='_profileRevisionsV1'
 const profileRevisions=new Map()
 const storedProfiles=new Map()
 const profileWrites=new Map()
+const deletingProfiles=new Set()
 let profileFlush=null,profileStatus=durableProfiles?'connecting':'local'
 const pendingLearningKey='_botLearningPendingV1'
 const learningUrl=process.env.MAGNET_LEARNING_URL
@@ -97,7 +98,9 @@ async function restoreProfiles(){
   for(const {id,revision,profile} of remote){
     storedProfiles.set(id,profile)
     if(revision<(profileRevisions.get(id)||0))continue
-    profiles.set(id,JSON.parse(profile))
+    const restored=JSON.parse(profile)
+    if(restored===null)profiles.delete(id)
+    else profiles.set(id,restored)
     profileRevisions.set(id,revision)
   }
   usernames.clear()
@@ -140,6 +143,7 @@ function existingKey(value){
 }
 function identity(value){
   const key=existingKey(value)
+  if(key&&deletingProfiles.has(key))throw new Error('Account deletion is in progress.')
   if(!key||!profiles.get(key).username)throw new Error('Choose a username before playing.')
   return key
 }
@@ -151,11 +155,6 @@ function refreshCoins(account,now=Date.now()){
   account.coins+=periods*refillAmount
   account.nextCoinsAt+=periods*refillPeriod
   dirty=true
-}
-function canEnter(profile){
-  const account=profiles.get(profile)
-  refreshCoins(account)
-  return account.coins>=stake
 }
 function profileState(key){
   const account=profiles.get(key)
@@ -183,6 +182,7 @@ function saveAccount(key,account){
 }
 function guestProfile(data){
   const known=existingKey(data.profile)||existingKey(data.device)
+  if(known&&deletingProfiles.has(known))throw new Error('Account deletion is in progress.')
   if(known&&profiles.get(known).username)return profileState(known)
   const key=known||(legalKey(data.device)?data.device:id())
   if(!known&&profiles.size>=50000)throw new Error('Guest profile limit reached.')
@@ -199,9 +199,71 @@ function checkName(username,key){
   if(reservedNames.has(name)||(usernames.has(name)&&usernames.get(name)!==key))
     throw new Error('That player name is taken.')
 }
+async function deleteAccount(data){
+  const key=identity(data.profile)
+  const account=profiles.get(key)
+  if(account.credentials){
+    const password=typeof data.password==='string'?data.password:''
+    if(password.length<8||password.length>128)throw new Error('Enter your password to delete this account.')
+    const derived=await derive(password,account.credentials.salt,64)
+    if(!timingSafeEqual(derived,Buffer.from(account.credentials.hash,'hex')))throw new Error('Password is incorrect.')
+    if(profiles.get(key)!==account)throw new Error('Your account changed. Try again.')
+  }
+  if(identities.has(key))throw new Error('Return home before deleting your account.')
+  if(deletingProfiles.has(key))throw new Error('Account deletion is in progress.')
+  deletingProfiles.add(key)
+  try{
+    if(durableProfiles&&!await flushProfiles())throw new Error('Account storage is unavailable. Try again shortly.')
+    const revision=Math.max(Date.now()*1024,(profileRevisions.get(key)||0)+1)
+    if(durableProfiles){
+      await profileRequest('POST','',[{id:key,revision,profile:'null'}])
+      storedProfiles.set(key,'null')
+    }
+    profileRevisions.set(key,revision)
+    profiles.delete(key)
+    usernames.delete(account.username.toLowerCase())
+    if(account.email)emails.delete(account.email)
+    persist()
+    return {deleted:true}
+  }finally{deletingProfiles.delete(key)}
+}
+async function reportName(data){
+  const player=sessions.get(data.token)
+  const match=player?.match
+  const seat=data.seat
+  if(!match||!Number.isInteger(seat)||seat===player.seat||!match.players[seat])
+    throw new Error('Choose a player from your current match.')
+  if(player.reportedMatch===match.id)throw new Error('You already reported a name in this match.')
+  const report={id:id(),name:match.names[seat],created:Date.now()}
+  player.reportedMatch=match.id
+  try{
+    if(durableProfiles){
+      const response=await fetch(new URL('/reports',learningUrl),{method:'POST',
+        headers:{Authorization:'Bearer '+learningToken,'Content-Type':'application/json'},
+        body:JSON.stringify(report),signal:AbortSignal.timeout(4500)})
+      if(!response.ok)throw new Error('Could not submit the report. Try again.')
+    }else fs.appendFileSync(dataPath+'.reports',JSON.stringify(report)+'\n')
+  }catch(error){player.reportedMatch=null;throw error}
+  return {reported:true}
+}
+function allowAccountAttempt(ip){
+  const now=Date.now()
+  const attempts=loginLimits.get(ip)||{start:now,count:0}
+  if(now-attempts.start>=60000){attempts.start=now;attempts.count=0}
+  loginLimits.set(ip,attempts)
+  return ++attempts.count<=12
+}
 async function accountAction(data,ip){
   const action=data.action
-  if(action==='bootstrap')return guestProfile(data)
+  if(action==='delete'){
+    if(!allowAccountAttempt(ip))throw new Error('Too many account attempts. Try again in a minute.')
+    return deleteAccount(data)
+  }
+  if(action==='bootstrap'){
+    if(!existingKey(data.profile)&&!existingKey(data.device)&&data.ageConfirmed!==true)
+      throw new Error('Confirm that you are 13 or older to create a profile.')
+    return guestProfile(data)
+  }
   const username=typeof data.username==='string'?data.username.trim().replace(/ +/g,' '):''
   const email=typeof data.email==='string'?data.email.trim().toLowerCase():''
   const password=typeof data.password==='string'?data.password:''
@@ -213,11 +275,7 @@ async function accountAction(data,ip){
     return saveAccount(key,{...profiles.get(key),username})
   }
   if(action!=='guest'){
-    const now=Date.now()
-    const attempts=loginLimits.get(ip)||{start:now,count:0}
-    if(now-attempts.start>=60000){attempts.start=now;attempts.count=0}
-    loginLimits.set(ip,attempts)
-    if(++attempts.count>12)throw new Error('Too many account attempts. Try again in a minute.')
+    if(!allowAccountAttempt(ip))throw new Error('Too many account attempts. Try again in a minute.')
     if(password.length<8||password.length>128)throw new Error('Use a password with 8â€“128 characters.')
   }
   if(action==='login'){
@@ -229,6 +287,7 @@ async function accountAction(data,ip){
       throw new Error('Email, player name, or password is incorrect.')
     return profileState(key)
   }
+  if(!known&&data.ageConfirmed!==true)throw new Error('Confirm that you are 13 or older to create a profile.')
   const current=known&&profiles.get(known)
   const keep=known&&!current.credentials&&(action==='register'||!current.username)?known:null
   const playerName=username||(keep?current.username:'')
@@ -239,6 +298,7 @@ async function accountAction(data,ip){
   const credentials=action==='register'?{salt:randomBytes(16).toString('hex')}:null
   if(credentials)credentials.hash=(await derive(password,credentials.salt,64)).toString('hex')
   const latest=keep&&profiles.get(keep)
+  if(keep&&(!latest||deletingProfiles.has(keep)))throw new Error('Your profile is unavailable.')
   if(latest?.credentials)throw new Error('This player already has sign-in details.')
   if(email&&emails.has(email))throw new Error('That email already has an account. Sign in instead.')
   checkName(playerName,keep)
@@ -435,7 +495,7 @@ function finish(match,winner,reason){
     if(!player)continue
     const account=profiles.get(player.profile)
     refreshCoins(account)
-    const coins=teamOf(match.game,seat)===winner?stake:-stake
+    const coins=reason==='completed'&&teamOf(match.game,seat)===winner?winReward:0
     account.coins+=coins
     Object.assign(match.results[seat],{coins,balance:account.coins})
   }
@@ -482,10 +542,6 @@ function remove(player){
   const match=player.match
   if(match&&!match.results){
     if(match.kind==='warzone'){
-      const account=profiles.get(player.profile)
-      refreshCoins(account)
-      account.coins-=stake
-      dirty=true
       const seat=player.seat
       match.players[seat]=null
       match.names[seat]=freeBotName(match.names)
@@ -507,7 +563,6 @@ function playerLook(profile,look){
   }
 }
 function makeSession(profile,look){
-  if(!canEnter(profile))throw new Error('You need 30 Arena Coins. Try free practice while your coins refill.')
   if(identities.has(profile))throw new Error('This profile is already in an online session. Use a private window for a second player.')
   if(sessions.size>=500)throw new Error('All online slots are occupied.')
   const player={token:id(),profile,seen:Date.now(),input:getInput(null),look:playerLook(profile,look)}
@@ -621,9 +676,7 @@ function roomAction(data){
   const match=player.match
   if(!match)return {queued:queued.has(player.token)||warQueue.has(player.token)}
   let notice
-  if(data.rematch&&match.results&&!canEnter(player.profile)){
-    notice='You need 30 Arena Coins. Try free practice while your coins refill.'
-  }else if(data.rematch&&match.results){
+  if(data.rematch&&match.results){
     if(data.look)player.look=playerLook(player.profile,data.look)
     if(['ranked','fallback','warzone'].includes(match.kind)){
       player.match=null
@@ -635,10 +688,7 @@ function roomAction(data){
     player.rematch=true
     const rival=match.players[1-player.seat]
     if(identities.get(rival.profile)!==rival)throw new Error('Your friend has left the room.')
-    if(rival.rematch&&!canEnter(rival.profile)){
-      rival.rematch=false
-      notice='Your friend needs 30 Arena Coins to rematch.'
-    }else if(rival.rematch){
+    if(rival.rematch){
       matches.delete(match.id)
       startMatch([rival,player],match.field,'private')
       player.rematch=false
@@ -647,7 +697,7 @@ function roomAction(data){
   const current=player.match
   const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit}=current.game
   return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit},
-    notice,names:current.names,looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
+    notice,names:current.names,bots:craft.map((_,seat)=>!current.players[seat]),looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(body))
@@ -672,7 +722,7 @@ function grant(key){
 }
 async function serve(req,res){
   const route=new URL(req.url,'http://localhost').pathname
-  if(req.method==='GET'&&route==='/'){
+  if(req.method==='GET'&&(['/','/account-deletion','/privacy','/terms'].includes(route))){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
@@ -680,8 +730,8 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'durable-profiles-fair-ranked',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
-  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-launch-safety',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
   const count=addressLimits.get(ip)||{start:now,count:0}
@@ -697,6 +747,7 @@ async function serve(req,res){
     }
     const data=JSON.parse(raw)
     if(!data||typeof data!=='object')throw new Error('Invalid request.')
+    if(route==='/report'){send(res,200,await reportName(data));return}
     if(route==='/room'){send(res,200,roomAction(data));return}
     if(route==='/profile'){
       const key=existingKey(data.profile)
@@ -740,7 +791,7 @@ if(require.main===module){
   })
   void Promise.all([syncLearning(),restoreProfiles()]).then(()=>server.listen(port,process.env.HOST||'0.0.0.0',()=>{
     const url='http://localhost:'+server.address().port+'/'
-    console.log('Magnet Mayhem is running at '+url)
+    console.log('PuckVolt is running at '+url)
     console.log('Leave this window open while you play.')
     if(process.platform==='win32'&&process.env.MAGNET_OPEN_BROWSER==='1'){
       const {spawn}=require('node:child_process')
