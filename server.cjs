@@ -8,6 +8,8 @@ const derive=promisify(scrypt)
 const opponentNames=require('./opponent-names.cjs')
 const starterDiamonds=25
 const winReward=30
+const rankedEntry=30
+const rankedPrize=rankedEntry*2
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
@@ -83,8 +85,21 @@ async function profileRequest(method,cursor='',rows){
   if(!response.ok)throw new Error('Player storage returned '+response.status)
   return method==='GET'?response.json():null
 }
+function refundInterruptedRanked(){
+  let refunded=false
+  for(const account of profiles.values()){
+    if(!account.pendingRankedEntry)continue
+    account.coins+=rankedEntry
+    delete account.pendingRankedEntry
+    refunded=true
+  }
+  return refunded
+}
 async function restoreProfiles(){
-  if(!durableProfiles)return
+  if(!durableProfiles){
+    if(refundInterruptedRanked())persist()
+    return
+  }
   if(!learningUrl||!learningToken)throw new Error('Player storage credentials are missing')
   const remote=[]
   let cursor=''
@@ -109,6 +124,7 @@ async function restoreProfiles(){
     if(account.username)usernames.set(account.username.toLowerCase(),id)
     if(account.email)emails.set(account.email,id)
   }
+  refundInterruptedRanked()
   profileStatus='durable'
   persist()
   if(!await flushProfiles())throw new Error('Player storage could not migrate local accounts')
@@ -367,6 +383,7 @@ async function accountAction(data,ip){
 function redeem(data){
   const key=identity(data.profile)
   const account=profiles.get(key)
+  if(queued.has(identities.get(key)?.token)&&data.gear!=='exchange-coins')throw new Error('Finish matchmaking before spending coins.')
   if(data.gear==='exchange-coins'){
     const count=data.packs
     if(!Number.isInteger(count)||count<1||count>coinExchange.maxPacks)throw new Error('Invalid coin exchange.')
@@ -480,6 +497,11 @@ function ratingChange(rating,other,won,games,normalK=24){
   const expected=1/(1+10**((other-rating)/400))
   return Math.round((games<8?normalK*1.8:normalK)*(Number(won)-expected))
 }
+function hasRankedEntry(profile){
+  const account=profiles.get(profile)
+  refreshCoins(account)
+  return account.coins>=rankedEntry&&!account.pendingRankedEntry
+}
 function startMatch(players,field,kind,rival=null){
   const skill=rival?playerSkill(players[0],'bot'):1000
   const botRating=rival?botTarget(skill):null
@@ -492,6 +514,24 @@ function startMatch(players,field,kind,rival=null){
   registerMatch(match)
 }
 function registerMatch(match){
+  const staked=['ranked','fallback'].includes(match.kind)
+  if(staked){
+    const accounts=match.players.map(player=>profiles.get(player.profile))
+    if(match.players.some(player=>!hasRankedEntry(player.profile)))throw new Error('Ranked entry requires 30 Arena Coins.')
+    for(const account of accounts){
+      account.coins-=rankedEntry
+      account.pendingRankedEntry=match.id
+    }
+    try{persist()}catch(error){
+      for(const account of accounts){
+        account.coins+=rankedEntry
+        delete account.pendingRankedEntry
+      }
+      dirty=true
+      throw error
+    }
+  }
+  match.staked=staked
   matches.set(match.id,match)
   match.game.fairMagnets=['ranked','fallback','warzone'].includes(match.kind)
   if(match.game.fairMagnets)for(const ship of match.game.craft)ship.magnet={...rankedMagnet}
@@ -553,9 +593,11 @@ function finish(match,winner,reason){
     if(!player)continue
     const account=profiles.get(player.profile)
     refreshCoins(account)
-    const coins=reason==='completed'&&teamOf(match.game,seat)===winner?winReward:0
+    const won=teamOf(match.game,seat)===winner
+    const coins=match.staked?(won?rankedPrize:0):(reason==='completed'&&won?winReward:0)
+    if(match.staked&&account.pendingRankedEntry===match.id)delete account.pendingRankedEntry
     account.coins+=coins
-    Object.assign(match.results[seat],{coins,balance:account.coins})
+    Object.assign(match.results[seat],{coins,balance:account.coins,entry:match.staked?rankedEntry:0})
   }
   dirty=true
   if(reason==='completed'&&match.kind==='fallback'){
@@ -721,6 +763,7 @@ function roomAction(data){
       return {profile,token:player.token,code:data.code}
     }
     const profile=identity(data.profile)
+    if(data.action==='rank'&&!hasRankedEntry(profile))throw new Error('Ranked entry costs 30 Arena Coins. Try Free Practice while your coins refill.')
     const player=makeSession(profile,data.look)
     if(data.action==='rank'||data.action==='warzone'){
       player.queuedAt=Date.now()
@@ -744,27 +787,30 @@ function roomAction(data){
   let notice
   if(data.rematch&&match.results){
     if(data.look)player.look=playerLook(player.profile,data.look)
-    if(['ranked','fallback','warzone'].includes(match.kind)){
+    if(match.staked&&!hasRankedEntry(player.profile)){
+      notice='Ranked entry costs 30 Arena Coins. Your next refill is on the home screen.'
+    }else if(['ranked','fallback','warzone'].includes(match.kind)){
       player.match=null
       player.queuedAt=Date.now()
       const queue=match.kind==='warzone'?warQueue:queued
       queue.set(player.token,player)
       return {queued:true}
-    }
-    player.rematch=true
-    const rival=match.players[1-player.seat]
-    if(identities.get(rival.profile)!==rival)throw new Error('Your friend has left the room.')
-    if(rival.rematch&&!mayMatch(player.profile,rival.profile))throw new Error('A rematch is unavailable.')
-    if(rival.rematch){
-      matches.delete(match.id)
-      startMatch([rival,player],match.field,'private')
-      player.rematch=false
+    }else{
+      player.rematch=true
+      const rival=match.players[1-player.seat]
+      if(identities.get(rival.profile)!==rival)throw new Error('Your friend has left the room.')
+      if(rival.rematch&&!mayMatch(player.profile,rival.profile))throw new Error('A rematch is unavailable.')
+      if(rival.rematch){
+        matches.delete(match.id)
+        startMatch([rival,player],match.field,'private')
+        player.rematch=false
+      }
     }
   }
   const current=player.match
   const {field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit}=current.game
   return {game:{mode:current.kind==='warzone'?'warzone':'online',field,phase,score,clock,winner,extra,craft,puck,trail,effects,event,hit},
-    notice,names:current.names,bots:craft.map((_,seat)=>!current.players[seat]),looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
+    notice,balance:profiles.get(player.profile).coins,names:current.names,bots:craft.map((_,seat)=>!current.players[seat]),looks:craft.map((_,seat)=>current.players[seat]?.look||current.game.bots?.[seat]?.look||(seat===1?current.game.rival?.look:undefined)),seat:player.seat,matchId:current.id,result:current.results?.[player.seat]}
 }
 function send(res,status,body){
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(body))
@@ -797,7 +843,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-neutral-match-labels',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-ranked-entry',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

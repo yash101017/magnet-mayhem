@@ -8,7 +8,7 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
-let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
+let coins=0,diamonds=0,gear=[],refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
 let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let blockedCount=0
@@ -317,6 +317,8 @@ function renderHud(){
       const change=online.state.result.coins
       message+=' · '+(change>0?'+':'')+change+' Arena Coins'
     }
+    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · 30 Arena Coins entry'
+    if(online.state?.notice)message+=' · '+online.state.notice
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
     const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
@@ -1012,10 +1014,8 @@ function applyOnlineState(state){
   online.errors=0
   online.state=state
   if(state.notice)online.rematch=false
-  if(state.result?.coins&&rewardMatch!==state.matchId){
-    rewardMatch=state.matchId
-    coins=state.result.balance
-  }
+  if(Number.isFinite(state.balance))coins=state.balance
+  if(state.notice)cachedStatus=state.notice
   if(!state.game){
     if(online.rematch&&state.queued){
       online.matchId=null

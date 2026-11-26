@@ -211,7 +211,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <dialog id="lobby-dialog">
   <header><h2>Online play</h2><button data-close="lobby-dialog">Close</button></header>
   <div class="lobby-stats"><p id="selected-field"></p><p id="rating"></p></div>
-  <p>Wins award <strong>30 Arena Coins</strong>. Entry is free.</p>
+  <p>Ranked 1v1 costs <strong>30 Arena Coins</strong> to enter. The winner receives <strong>60 Arena Coins</strong>. War Zone and friend rooms are free to enter.</p>
   <div class="lobby-actions">
     <button id="ranked" class="primary"><span>Ranked Game</span><small>Skill-based 1v1 · Equal magnet stats</small></button>
     <button id="warzone"><span>War Zone</span><small>5 vs 5 · Equal magnet stats</small></button>
@@ -303,7 +303,7 @@ dialog>header h2{font-size:1.45rem;letter-spacing:-.04em}
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
-<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Completed wins can award coins and eligible matches may change ratings. Losses and entry do not cost coins.</p>
+<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone and friend rooms are free to enter.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>
 
@@ -948,7 +948,7 @@ const themeColors={classic:['#67f7ff','#ff72b3','#fff1a0'],prism:['#ff8370','#ff
 let game=createGame({mode:'online'}), menu=true, pointer=null, shot=null, shotSerial=0
 let previousHit='', previousEvent='', previousOverlay='', currentField=0, bursts=[], audio=null
 const coinPrices={ice:90,comet:150}
-let coins=0,diamonds=0,gear=[],rewardMatch=null,refillDeadline=null,nextRefillCheck=0
+let coins=0,diamonds=0,gear=[],refillDeadline=null,nextRefillCheck=0
 let practicing=false,practiceBank=0,practiceShip=null,practiceEffect=null,practiceTrail=null
 let cosmetic='classic', shipStyle='classic', trailStyle='classic', selectedPreview=null, ownsPack=false, profile=null, username=null, accountMode=null, cachedStatus=''
 let blockedCount=0
@@ -1257,6 +1257,8 @@ function renderHud(){
       const change=online.state.result.coins
       message+=' · '+(change>0?'+':'')+change+' Arena Coins'
     }
+    if(online.state?.result?.entry&&!online.state.result.coins)message+=' · 30 Arena Coins entry'
+    if(online.state?.notice)message+=' · '+online.state.notice
     if(online.state?.result?.reason==='forfeit')message+=' · Opponent disconnected'
     if(online.state?.result?.delta)message+=' · '+(online.state.result.delta>0?'+':'')+online.state.result.delta+' rating'
     const replay=online.rematch?'Waiting for rival':online.war?'Play War Zone again':online.ranked?'Find another match':'Rematch'
@@ -1952,10 +1954,8 @@ function applyOnlineState(state){
   online.errors=0
   online.state=state
   if(state.notice)online.rematch=false
-  if(state.result?.coins&&rewardMatch!==state.matchId){
-    rewardMatch=state.matchId
-    coins=state.result.balance
-  }
+  if(Number.isFinite(state.balance))coins=state.balance
+  if(state.notice)cachedStatus=state.notice
   if(!state.game){
     if(online.rematch&&state.queued){
       online.matchId=null
