@@ -437,6 +437,7 @@ function activeField(game) {
 
 function resetRound(game) {
   game.lastMagnetSeat=null
+  game.lastTouch=null
   game.think = .55
   game.escape = null
   game.attackStall = 0
@@ -472,7 +473,7 @@ function createGame({mode='bot', field=0, difficulty='easy', rival=null, bots=nu
     mode,rival,bots,field:fields[field]?field:0,difficulty:Object.hasOwn(difficulties,difficulty)?difficulty:'easy',
     phase:'play',score:[0,0],stage:0,elapsed:0,serial:0,clock:90,delay:0,winner:null,extra:false,
     craft:(mode==='warzone'?shipColors.flatMap(color=>Array(warTeamSize).fill(color)):shipColors).map(color=>({color})),
-    puck:{}, botShots:{count:0,forward:0}, lastShot:Array(mode==='warzone'?warTeamSize*2:2).fill(0), status:'', event:{id:0}
+    puck:{}, botShots:{count:0,forward:0,ownGoals:0},lastTouch:null, lastShot:Array(mode==='warzone'?warTeamSize*2:2).fill(0), status:'', event:{id:0}
   }
   if(mode==='bot')equipMagnet(game.craft[1],rival?.look?.ship)
   if(mode==='warzone')bots?.forEach((bot,seat)=>{if(bot)equipMagnet(game.craft[seat],bot.look?.ship)})
@@ -498,6 +499,7 @@ function changeGoal(game,owner) {
     }
     return
   }
+  if(game.lastTouch?.bot&&game.lastTouch.team!==owner)game.botShots.ownGoals++
   game.score[owner]++
   event(game,'goal',owner)
   if(game.lastMagnetSeat!==null&&teamOf(game,game.lastMagnetSeat)===owner)game.event.scorer=game.lastMagnetSeat
@@ -510,6 +512,34 @@ function changeGoal(game,owner) {
   }
 }
 
+function isBotSeat(game,seat){
+  return game.mode==='bot'&&seat===1||game.mode==='warzone'&&Boolean(game.bots?.[seat])
+}
+function threatensOwnGoal(game,seat,vx,vy){
+  const ownY=teamOf(game,seat)===0?H-wall:wall
+  const dy=ownY-game.puck.y
+  if(dy*vy<=0||Math.abs(vy)<1)return false
+  const t=dy/vy
+  if(t>.95)return false
+  const span=W-2*(wall+8)
+  const projected=game.puck.x+vx*t-wall-8
+  const folded=((projected%(span*2))+span*2)%(span*2)
+  const x=wall+8+(folded>span?span*2-folded:folded)
+  return Math.abs(x-W/2)<goal+12
+}
+function avoidOwnGoalContact(game,seat,before){
+  if(!before)return
+  const ship=game.craft[seat],puck=game.puck
+  const dx=puck.x-ship.x,dy=puck.y-ship.y,gap=Math.hypot(dx,dy)
+  if(gap>=27||gap<.01)return
+  const nx=dx/gap,ny=dy/gap
+  const closing=(ship.vx-puck.vx)*nx+(ship.vy-puck.vy)*ny
+  if(closing<=0||!threatensOwnGoal(game,seat,puck.vx+nx*closing*1.26,puck.vy+ny*closing*1.26))return
+  ship.x=before.x
+  ship.y=before.y
+  ship.vx=0
+  ship.vy=0
+}
 function magnet(game,seat,push) {
   const craft=game.craft[seat], puck=game.puck
   if(game.phase!=='play'||craft.cd>0)return false
@@ -518,14 +548,18 @@ function magnet(game,seat,push) {
   const stats=craft.magnet||starterMagnet
   if(d>stats.range||d<1){event(game,'miss',seat);return false}
   const force=push?stats.push:-stats.pull
+  const vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
+  const vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
+  if(ai&&threatensOwnGoal(game,seat,vx,vy))return false
   if(ai&&push){
     game.botShots.count++
     const direction=teamOf(game,seat)===0?-1:1
     if((puck.y-craft.y)*direction>d*.55)game.botShots.forward++
   }
   game.lastMagnetSeat=seat
-  puck.vx=puck.vx*.38+(puck.x-craft.x)/d*force+craft.vx*.22
-  puck.vy=puck.vy*.38+(puck.y-craft.y)/d*force+craft.vy*.22
+  game.lastTouch={bot:Boolean(ai),team:teamOf(game,seat)}
+  puck.vx=vx
+  puck.vy=vy
   craft.cd=ai?.recovery??.85
   game.effects.push({x:craft.x,y:craft.y,t:0,color:craft.color,push,reach:stats.range})
   event(game,push?'push':'pull',seat)
@@ -799,6 +833,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
       return
     }
   }
+  const botPositions=game.craft.map((ship,seat)=>isBotSeat(game,seat)?{x:ship.x,y:ship.y}:null)
   if(game.mode==='warzone'){
     runWarTeam(game,0,inputs,dt)
     runWarTeam(game,1,inputs,dt)
@@ -818,7 +853,12 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
     }
   }
   let impact=0
-  for(const body of craft)impact=Math.max(impact,separate(body,puck,23,0,1,.26)||0)
+  for(const [seat,body] of craft.entries()){
+    avoidOwnGoalContact(game,seat,botPositions[seat])
+    const impulse=separate(body,puck,23,0,1,.26)||0
+    if(impulse>impact)impact=impulse
+    if(impulse>=28)game.lastTouch={bot:isBotSeat(game,seat),team:teamOf(game,seat)}
+  }
   if(impact>=28&&(!game.hit||game.elapsed-game.hit.time>=.11)){
     game.hit={id:++game.serial,time:game.elapsed}
   }

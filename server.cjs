@@ -23,10 +23,15 @@ const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json'
 const profiles=new Map()
 const learningKey='_botLearningV1'
 let learning={}
+const pendingLearningKey='_botLearningPendingV1'
+const learningUrl=process.env.MAGNET_LEARNING_URL
+const learningToken=process.env.MAGNET_LEARNING_TOKEN
+let pendingLearning=[], learningSync=false, nextLearningSync=0, learningStatus=learningUrl&&learningToken?'connecting':'local'
 try{
   const saved=JSON.parse(fs.readFileSync(dataPath,'utf8'))
   learning=saved[learningKey]||{}
-  for(const [key,value] of Object.entries(saved))if(key!==learningKey)profiles.set(key,value)
+  pendingLearning=saved[pendingLearningKey]||[]
+  for(const [key,value] of Object.entries(saved))if(key!==learningKey&&key!==pendingLearningKey)profiles.set(key,value)
 }catch(error){if(error.code!=='ENOENT')throw error}
 const usernames=new Map()
 for(const [key,account] of profiles)if(account.username)usernames.set(account.username.toLowerCase(),key)
@@ -45,7 +50,7 @@ let lastTick=Date.now(), lastMaintenance=0, dirty=false
 
 function persist(){
   const scratch=dataPath+'.tmp'
-  fs.writeFileSync(scratch,JSON.stringify({...Object.fromEntries(profiles),[learningKey]:learning}))
+  fs.writeFileSync(scratch,JSON.stringify({...Object.fromEntries(profiles),[learningKey]:learning,[pendingLearningKey]:pendingLearning}))
   fs.renameSync(scratch,dataPath)
   dirty=false
 }
@@ -217,19 +222,60 @@ function tacticFor(tier,field){
   }
   return attackTactics.reduce((best,tactic)=>score(tactic)>score(best)?tactic:best)
 }
-function learnTactic(match,winner){
-  const tactic=match.game.rival.tactic
-  const tier=learning[match.botRating]??={}
-  const field=tier[match.field]??={}
-  const record=field[tactic.id]??={games:0,reward:0}
-  const shots=match.game.botShots
-  const reward=(winner===1?.50:0)+.30*(match.game.score[1]/3)+.20*(shots.count?shots.forward/shots.count:0)
+function addTacticResult({tier,field,tactic,reward}){
+  const records=(learning[tier]??={})[field]??={}
+  const record=records[tactic]??={games:0,reward:0}
   if(record.games>=80){
     record.games*=.95
     record.reward*=.95
   }
   record.games++
   record.reward+=reward
+}
+async function requestLearning(method,rows){
+  const response=await fetch(learningUrl,{method,headers:{Authorization:'Bearer '+learningToken,
+    'Content-Type':'application/json'},body:rows&&JSON.stringify(rows),signal:AbortSignal.timeout(4500)})
+  if(!response.ok)throw new Error('Learning store returned '+response.status)
+  return method==='GET'?response.json():null
+}
+async function syncLearning(now=Date.now()){
+  if(!learningUrl||!learningToken||learningSync||now<nextLearningSync)return
+  if(learningStatus==='durable'&&!pendingLearning.length)return
+  learningSync=true
+  let acknowledged=0, restored=null
+  try{
+    while(acknowledged<pendingLearning.length){
+      const batch=pendingLearning.slice(acknowledged,acknowledged+50)
+      await requestLearning('POST',batch)
+      acknowledged+=batch.length
+    }
+    if(learningStatus!=='durable')restored=await requestLearning('GET')
+    if(restored){
+      learning={}
+      for(const row of restored){
+        const fields=learning[row.tier]??={}
+        const records=fields[row.field]??={}
+        records[row.tactic]={games:row.games,reward:row.reward}
+      }
+      for(const row of pendingLearning.slice(acknowledged))addTacticResult(row)
+    }
+    learningStatus='durable'
+  }catch(error){
+    learningStatus='retrying'
+    nextLearningSync=now+15000
+    console.error('Bot learning sync:',error.message)
+  }finally{
+    if(acknowledged)pendingLearning.splice(0,acknowledged)
+    if(acknowledged||restored)dirty=true
+    learningSync=false
+  }
+}
+function learnTactic(match,winner){
+  const shots=match.game.botShots
+  const reward=clamp((winner===1?.50:0)+.30*(match.game.score[1]/3)+.20*(shots.count?shots.forward/shots.count:0)-.20*shots.ownGoals,0,1)
+  const row={id:match.id,tier:match.botRating,field:match.field,tactic:match.game.rival.tactic.id,reward}
+  addTacticResult(row)
+  if(learningUrl&&learningToken)pendingLearning.push(row)
 }
 function ratingChange(rating,other,won,games,normalK=24){
   const expected=1/(1+10**((other-rating)/400))
@@ -454,6 +500,7 @@ function tick(){
   for(const [ip,value] of loginLimits)if(now-value.start>60000)loginLimits.delete(ip)
   findPairs(now)
   findWarMatches(now)
+  void syncLearning(now)
   if(dirty){try{persist()}catch(error){console.error('Could not save profiles:',error.message)}}
 }
 setInterval(tick,12).unref()
@@ -549,7 +596,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'adaptive-bot-tactics',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'bot-goal-defense',stream:streamAvailable,learning:learningStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
@@ -585,7 +632,7 @@ if(require.main===module){
     console.error(error.code==='EADDRINUSE'?'Port '+port+' is already in use. Try Play.cmd with a different port.':error.message)
     process.exitCode=1
   })
-  server.listen(port,process.env.HOST||'0.0.0.0',()=>{
+  void syncLearning().then(()=>server.listen(port,process.env.HOST||'0.0.0.0',()=>{
     const url='http://localhost:'+server.address().port+'/'
     console.log('Magnet Mayhem is running at '+url)
     console.log('Leave this window open while you play.')
@@ -595,7 +642,7 @@ if(require.main===module){
       opener.on('error',()=>console.log('Open '+url+' in your browser.'))
       opener.unref()
     }
-  })
+  }))
 }
 module.exports={serve,difficultyForSkill}
 
