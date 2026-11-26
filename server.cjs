@@ -11,7 +11,7 @@ const stake=30
 const refillAmount=100
 const refillPeriod=60*60*1000
 const reservedNames=new Set(opponentNames.map(name=>name.toLowerCase()))
-const {fields,botRivals,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,coinExchange,ownedStyle,botLoadout,equipMagnet}=require('./engine.cjs')
+const {fields,botRivals,attackTactics,createGame,warTeamSize,teamOf,step,stepSeconds,clamp,catalog,diamondPacks,coinExchange,ownedStyle,botLoadout,equipMagnet}=require('./engine.cjs')
 const {handleWebhook}=require('./payment.cjs')
 const {attachMatchSockets}=require('./match-socket.cjs')
 let streamAvailable=false
@@ -21,8 +21,12 @@ const shipArt=fs.readFileSync(path.join(__dirname,'ship-art.webp'))
 const effectArt=fs.readFileSync(path.join(__dirname,'effect-art.webp'))
 const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json')
 const profiles=new Map()
+const learningKey='_botLearningV1'
+let learning={}
 try{
-  for(const [key,value] of Object.entries(JSON.parse(fs.readFileSync(dataPath,'utf8'))))profiles.set(key,value)
+  const saved=JSON.parse(fs.readFileSync(dataPath,'utf8'))
+  learning=saved[learningKey]||{}
+  for(const [key,value] of Object.entries(saved))if(key!==learningKey)profiles.set(key,value)
 }catch(error){if(error.code!=='ENOENT')throw error}
 const usernames=new Map()
 for(const [key,account] of profiles)if(account.username)usernames.set(account.username.toLowerCase(),key)
@@ -41,7 +45,7 @@ let lastTick=Date.now(), lastMaintenance=0, dirty=false
 
 function persist(){
   const scratch=dataPath+'.tmp'
-  fs.writeFileSync(scratch,JSON.stringify(Object.fromEntries(profiles)))
+  fs.writeFileSync(scratch,JSON.stringify({...Object.fromEntries(profiles),[learningKey]:learning}))
   fs.renameSync(scratch,dataPath)
   dirty=false
 }
@@ -199,17 +203,47 @@ function getInput(raw){
 function difficultyForSkill(skill){
   return skill>=1160?'hard':skill>=1040?'normal':'easy'
 }
-function fallbackSkill(skill,won,margin){
-  return clamp(Math.round(skill+(won?17:-17)+margin*3),650,1800)
+const botTiers=[850,950,1050,1150,1250,1400,1550,1700,1850]
+function botTarget(skill){
+  return botTiers.reduce((best,rating)=>Math.abs(rating-skill-20)<Math.abs(best-skill-20)?rating:best)
+}
+function tacticFor(tier,field){
+  const records=learning[tier]?.[field]||{}
+  const total=Object.values(records).reduce((sum,record)=>sum+record.games,0)
+  const score=tactic=>{
+    const record=records[tactic.id]
+    if(!record)return 2
+    return record.reward/record.games+.4*Math.sqrt(Math.log(total+1)/record.games)
+  }
+  return attackTactics.reduce((best,tactic)=>score(tactic)>score(best)?tactic:best)
+}
+function learnTactic(match,winner){
+  const tactic=match.game.rival.tactic
+  const tier=learning[match.botRating]??={}
+  const field=tier[match.field]??={}
+  const record=field[tactic.id]??={games:0,reward:0}
+  const shots=match.game.botShots
+  const reward=(winner===1?.50:0)+.30*(match.game.score[1]/3)+.20*(shots.count?shots.forward/shots.count:0)
+  if(record.games>=80){
+    record.games*=.95
+    record.reward*=.95
+  }
+  record.games++
+  record.reward+=reward
+}
+function ratingChange(rating,other,won,games,normalK=24){
+  const expected=1/(1+10**((other-rating)/400))
+  return Math.round((games<8?normalK*1.8:normalK)*(Number(won)-expected))
 }
 function startMatch(players,field,kind,rival=null){
-  const skill=rival?(profiles.get(players[0].profile).skill??profiles.get(players[0].profile).rating):1000
-  const difficulty=difficultyForSkill(skill)
-  const style=rival?{...rival,look:randomBotLook(players.map(player=>player.look)),speed:rival.speed+clamp((skill-1000)*.13,-20,25)}:null
+  const skill=rival?playerSkill(players[0],'bot'):1000
+  const botRating=rival?botTarget(skill):null
+  const difficulty=difficultyForSkill(botRating??skill)
+  const style=rival?{...rival,tactic:tacticFor(botRating,field),look:randomBotLook(players.map(player=>player.look)),speed:rival.speed+clamp((botRating-1050)*.065,-16,55)}:null
   const game=createGame({mode:rival?'bot':'online',field,difficulty,rival:style})
   const names=players.map(player=>profiles.get(player.profile).username)
   if(rival)names.push(rival.displayName)
-  const match={id:id(),players,field,kind,names,skill,game,results:null,created:Date.now()}
+  const match={id:id(),players,field,kind,names,skill,botRating,game,results:null,created:Date.now()}
   registerMatch(match)
 }
 function registerMatch(match){
@@ -225,14 +259,15 @@ function registerMatch(match){
     warQueue.delete(player.token)
   }
 }
-function playerSkill(player){
+function playerSkill(player,mode='war'){
   const account=profiles.get(player.profile)
-  return account.skill??account.rating
+  return (mode==='bot'?account.botRating:account.warRating)??account.rating??1000
 }
 function randomBotLook(used){return botLoadout(used,()=>randomInt(2**24)/2**24)}
-function warBot(skill,used){
+function warBot(skill,used,field){
   const style=botRivals[randomInt(botRivals.length)]
-  return {difficulty:difficultyForSkill(skill),speed:style.speed,offset:style.offset,look:randomBotLook(used)}
+  const rating=botTarget(skill)
+  return {difficulty:difficultyForSkill(rating),speed:style.speed+clamp((rating-1050)*.065,-16,55),offset:style.offset,tactic:tacticFor(rating,field),look:randomBotLook(used)}
 }
 function freeBotName(names){
   let index=randomInt(opponentNames.length)
@@ -250,14 +285,14 @@ function startWarMatch(group){
   const skill=Math.round(group.reduce((sum,player)=>sum+playerSkill(player),0)/group.length)
   const names=players.map(player=>player?profiles.get(player.profile).username:null)
   const used=group.map(player=>player.look)
+  const field=[3,4][randomInt(2)]
   const bots=players.map((player,seat)=>{
     if(player)return null
     names[seat]=freeBotName(names)
-    const bot=warBot(skill,used)
+    const bot=warBot(skill,used,field)
     used.push(bot.look)
     return bot
   })
-  const field=[3,4][randomInt(2)]
   const game=createGame({mode:'warzone',field,bots})
   registerMatch({id:id(),players,field,kind:'warzone',names,skill,game,results:null,created:Date.now()})
 }
@@ -274,29 +309,39 @@ function finish(match,winner,reason){
     const coins=teamOf(match.game,seat)===winner?stake:-stake
     account.coins+=coins
     Object.assign(match.results[seat],{coins,balance:account.coins})
-    if(match.kind==='warzone'&&reason==='completed'){
-      const team=teamOf(match.game,seat)
-      account.skill=fallbackSkill(playerSkill(player),team===winner,match.game.score[team]-match.game.score[1-team])
-    }
   }
   dirty=true
   if(reason==='completed'&&match.kind==='fallback'){
     const account=profiles.get(match.players[0].profile)
-    const margin=match.game.score[0]-match.game.score[1]
-    account.skill=fallbackSkill(match.skill,winner===0,margin)
-    dirty=true
+    const games=account.botGames??0
+    account.botRating=clamp(match.skill+ratingChange(match.skill,match.botRating,winner===0,games),650,1950)
+    account.botGames=games+1
+    learnTactic(match,winner)
   }
-  if(match.kind!=='ranked'||(reason==='forfeit'&&match.game.elapsed<1))return
+  if(reason==='completed'&&match.kind==='warzone'){
+    const groups=[[],[]]
+    for(const [seat,player] of match.players.entries())if(player)groups[teamOf(match.game,seat)].push(player)
+    if(groups.every(group=>group.length)){
+      const averages=groups.map(group=>group.reduce((sum,player)=>sum+playerSkill(player),0)/group.length)
+      for(const [team,group] of groups.entries())for(const player of group){
+        const account=profiles.get(player.profile)
+        const games=account.warGames??0
+        account.warRating=clamp(playerSkill(player)+ratingChange(averages[team],averages[1-team],team===winner,games,15),650,1950)
+        account.warGames=games+1
+      }
+    }
+  }
+  if(match.kind!=='ranked'||reason!=='completed')return
   const a=profiles.get(match.players[winner].profile), b=profiles.get(match.players[1-winner].profile)
-  const change=Math.round(28/(1+10**((a.rating-b.rating)/400)))
+  const change=ratingChange(a.rating,b.rating,true,Math.min(a.rankedGames??0,b.rankedGames??0))
   a.rating+=change
   b.rating-=change
-  a.skill=clamp((a.skill??a.rating-change)+change,650,1800)
-  b.skill=clamp((b.skill??b.rating+change)-change,650,1800)
+  a.rankedGames=(a.rankedGames??0)+1
+  b.rankedGames=(b.rankedGames??0)+1
   match.results[winner].delta=change
   match.results[1-winner].delta=-change
-  dirty=true
 }
+
 function scrub(player){
   if(identities.get(player.profile)===player)identities.delete(player.profile)
   if(player.code&&inviteRooms.get(player.code)===player)inviteRooms.delete(player.code)
@@ -315,7 +360,7 @@ function remove(player){
       const seat=player.seat
       match.players[seat]=null
       match.names[seat]=freeBotName(match.names)
-      const bot=warBot(match.skill,[...match.players.map(participant=>participant?.look),...match.game.bots.map(config=>config?.look)])
+      const bot=warBot(match.skill,[...match.players.map(participant=>participant?.look),...match.game.bots.map(config=>config?.look)],match.field)
       match.game.bots[seat]=bot
       equipMagnet(match.game.craft[seat],bot.look.ship)
       match.game.botThink[seat]=0
@@ -345,12 +390,12 @@ function findPairs(now){
   for(const [token,player] of queued){
     if(!queued.has(token))continue
     const self=profiles.get(player.profile).rating
-    const window=100+Math.floor((now-player.queuedAt)/1250)*35
+    const window=70+Math.floor((now-player.queuedAt)/1000)*35
     let rival=null, best=Infinity
     for(const candidate of queued.values()){
       if(candidate===player)continue
       const gap=Math.abs(self-profiles.get(candidate.profile).rating)
-      if(gap>window||gap>100+Math.floor((now-candidate.queuedAt)/1250)*35||gap>=best)continue
+      if(gap>window||gap>70+Math.floor((now-candidate.queuedAt)/1000)*35||gap>=best)continue
       rival=candidate;best=gap
     }
     if(rival)startMatch(randomInt(2)?[player,rival]:[rival,player],[3,4][randomInt(2)],'ranked')
@@ -504,7 +549,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'twenty-ship-trails',stream:streamAvailable});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'adaptive-bot-tactics',stream:streamAvailable});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()
@@ -552,6 +597,6 @@ if(require.main===module){
     }
   })
 }
-module.exports={serve,difficultyForSkill,fallbackSkill}
+module.exports={serve,difficultyForSkill}
 
 
