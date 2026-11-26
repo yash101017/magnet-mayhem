@@ -175,7 +175,15 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .legal-footer{margin-top:auto;padding:20px 4px 8px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px;font-size:.78rem}
 .legal-footer a{color:var(--muted)}
 .social-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
-.social-online{color:var(--mint)}.social-offline{color:var(--rose)}.medal-locked{opacity:.5}.medal-emblem{font-size:3rem;color:#ffda79;margin:0;text-align:center}
+.social-online{color:var(--mint)}.social-offline{color:var(--rose)}
+.medal-summary{margin:12px 0;color:#cddcff}
+.medal-grid{list-style:none;margin:0;padding:0}
+.medal-card{text-align:center;grid-template-rows:auto auto auto 1fr;gap:6px;padding:8px}
+.medal-art{display:block;width:min(100%,116px);aspect-ratio:1;border-radius:10px;background:#070b18 url('medal-art.webp') no-repeat;background-size:1200% 900%}
+.medal-card[data-earned=false] .medal-art{filter:grayscale(1);opacity:.76}
+.medal-card[data-earned=true]{border-color:#6accc5}
+.medal-card[data-earned=true] .medal-status{color:var(--mint)}
+#medal-emblem{width:min(45vw,176px);margin:0 auto 12px}
 #series-score{display:block;text-align:center;color:var(--mint)}
 #match-departure{margin:3px 0;font-size:.78rem;color:var(--muted)}
 @media(pointer:coarse){
@@ -345,7 +353,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 <p id="social-message" role="status"></p>
 </dialog>
 <dialog id="medal-dialog" aria-labelledby="medal-title">
-<p class="medal-emblem" aria-hidden="true">★</p>
+<span id="medal-emblem" class="medal-art" aria-hidden="true"></span>
 <h2 id="medal-title">Medal earned</h2><p id="medal-message"></p>
 <button id="medal-dismiss" class="primary">Continue</button>
 </dialog>

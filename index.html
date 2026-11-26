@@ -175,7 +175,15 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .legal-footer{margin-top:auto;padding:20px 4px 8px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px;font-size:.78rem}
 .legal-footer a{color:var(--muted)}
 .social-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
-.social-online{color:var(--mint)}.social-offline{color:var(--rose)}.medal-locked{opacity:.5}.medal-emblem{font-size:3rem;color:#ffda79;margin:0;text-align:center}
+.social-online{color:var(--mint)}.social-offline{color:var(--rose)}
+.medal-summary{margin:12px 0;color:#cddcff}
+.medal-grid{list-style:none;margin:0;padding:0}
+.medal-card{text-align:center;grid-template-rows:auto auto auto 1fr;gap:6px;padding:8px}
+.medal-art{display:block;width:min(100%,116px);aspect-ratio:1;border-radius:10px;background:#070b18 url('medal-art.webp') no-repeat;background-size:1200% 900%}
+.medal-card[data-earned=false] .medal-art{filter:grayscale(1);opacity:.76}
+.medal-card[data-earned=true]{border-color:#6accc5}
+.medal-card[data-earned=true] .medal-status{color:var(--mint)}
+#medal-emblem{width:min(45vw,176px);margin:0 auto 12px}
 #series-score{display:block;text-align:center;color:var(--mint)}
 #match-departure{margin:3px 0;font-size:.78rem;color:var(--muted)}
 @media(pointer:coarse){
@@ -345,7 +353,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 <p id="social-message" role="status"></p>
 </dialog>
 <dialog id="medal-dialog" aria-labelledby="medal-title">
-<p class="medal-emblem" aria-hidden="true">★</p>
+<span id="medal-emblem" class="medal-art" aria-hidden="true"></span>
 <h2 id="medal-title">Medal earned</h2><p id="medal-message"></p>
 <button id="medal-dismiss" class="primary">Continue</button>
 </dialog>
@@ -2525,10 +2533,45 @@ $('send-report').addEventListener('click',async()=>{
   }catch(error){write('report-message',error.message)}
   finally{$('send-report').disabled=false}
 })
+function setMedalArt(element,medal){
+  const column=medal.art%12
+  const row=Math.floor(medal.art/12)
+  element.style.backgroundPosition=(100*column/11)+'% '+(100*row/8)+'%'
+}
+function renderMedalCollection(catalog,medals){
+  const earned=new Set(medals)
+  const content=$('social-content')
+  const summary=document.createElement('p')
+  summary.className='medal-summary'
+  summary.textContent=earned.size+' of '+catalog.length+' medals earned'
+  const grid=document.createElement('ul')
+  grid.className='market-grid medal-grid'
+  for(const medal of catalog){
+    const unlocked=earned.has(medal.id)
+    const card=document.createElement('li')
+    card.className='market-item medal-card'
+    card.dataset.earned=String(unlocked)
+    const art=document.createElement('span')
+    art.className='medal-art'
+    art.setAttribute('aria-hidden','true')
+    setMedalArt(art,medal)
+    const title=document.createElement('strong')
+    title.textContent=medal.name
+    const status=document.createElement('small')
+    status.className='medal-status'
+    status.textContent=unlocked?'Earned':'Locked'
+    const requirement=document.createElement('small')
+    requirement.textContent=medal.instruction
+    card.append(art,title,status,requirement)
+    grid.append(card)
+  }
+  content.append(summary,grid)
+}
 function showNextMedal(){
   const medal=medalQueue.shift()
   if(!medal){closeDialog('medal-dialog');return}
   write('medal-title',medal.name)
+  setMedalArt($('medal-emblem'),medal)
   const messages={
     duel:'You earned this in Ranked. Keep sharpening your next shot.',
     war:'Your team made it count. Take that momentum into the next round.',
@@ -2593,10 +2636,7 @@ async function loadSocial(mode,name){
       if(mode==='stats')$('country-code').value=data.player.country||''
       renderPlayerStats(data.player,data.ranks)
     }else if(mode==='medals'){
-      const earned=new Set(data.player.medals)
-      socialItem(earned.size+' of '+data.medalCatalog.length+' medals earned')
-      for(const medal of data.medalCatalog)socialItem(earned.has(medal.id)?'★ '+medal.name:medal.name,
-        earned.has(medal.id)?'Earned':medal.instruction,'',null,earned.has(medal.id)?'':'medal-locked')
+      renderMedalCollection(data.medalCatalog,data.player.medals)
     }else if(mode==='board'){
       $('board-prev').disabled=boardOffset===0
       $('board-next').disabled=!data.more

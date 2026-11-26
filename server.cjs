@@ -24,6 +24,8 @@ let streamAvailable=false
 const page=fs.readFileSync(path.join(__dirname,'index.html'))
 const shipArt=fs.readFileSync(path.join(__dirname,'ship-art.webp'))
 const effectArt=fs.readFileSync(path.join(__dirname,'effect-art.webp'))
+const medalArt=fs.readFileSync(path.join(__dirname,'medal-art.webp'))
+const artAssets=new Map([['/ship-art.webp',shipArt],['/effect-art.webp',effectArt],['/medal-art.webp',medalArt]])
 const dataPath=process.env.MAGNET_DATA_FILE||path.join(__dirname,'profiles.json')
 const profiles=new Map()
 const learningKey='_botLearningV1'
@@ -622,6 +624,7 @@ for(const period of ladderKinds)for(const region of ['world','country'])for(let 
   medalCatalog.push({id:key,key,level:1,name:(region==='world'?'World':'Country')+' '+period+' #'+place,
     instruction:'Finish #'+place+' in a '+period+' '+region+' leaderboard'})
 }
+medalCatalog.forEach((medal,index)=>{medal.art=index})
 function periodKey(kind,now=Date.now()){
   const date=new Date(now)
   if(kind==='weekly')date.setUTCDate(date.getUTCDate()-(date.getUTCDay()+6)%7)
@@ -1077,11 +1080,11 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'}).end(page)
     return
   }
-  if(req.method==='GET'&&(route==='/ship-art.webp'||route==='/effect-art.webp')){
-    res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(route==='/ship-art.webp'?shipArt:effectArt)
+  if(req.method==='GET'&&artAssets.has(route)){
+    res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(artAssets.get(route))
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-android-feedback',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-medal-collection',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/social','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

@@ -1534,10 +1534,45 @@ $('send-report').addEventListener('click',async()=>{
   }catch(error){write('report-message',error.message)}
   finally{$('send-report').disabled=false}
 })
+function setMedalArt(element,medal){
+  const column=medal.art%12
+  const row=Math.floor(medal.art/12)
+  element.style.backgroundPosition=(100*column/11)+'% '+(100*row/8)+'%'
+}
+function renderMedalCollection(catalog,medals){
+  const earned=new Set(medals)
+  const content=$('social-content')
+  const summary=document.createElement('p')
+  summary.className='medal-summary'
+  summary.textContent=earned.size+' of '+catalog.length+' medals earned'
+  const grid=document.createElement('ul')
+  grid.className='market-grid medal-grid'
+  for(const medal of catalog){
+    const unlocked=earned.has(medal.id)
+    const card=document.createElement('li')
+    card.className='market-item medal-card'
+    card.dataset.earned=String(unlocked)
+    const art=document.createElement('span')
+    art.className='medal-art'
+    art.setAttribute('aria-hidden','true')
+    setMedalArt(art,medal)
+    const title=document.createElement('strong')
+    title.textContent=medal.name
+    const status=document.createElement('small')
+    status.className='medal-status'
+    status.textContent=unlocked?'Earned':'Locked'
+    const requirement=document.createElement('small')
+    requirement.textContent=medal.instruction
+    card.append(art,title,status,requirement)
+    grid.append(card)
+  }
+  content.append(summary,grid)
+}
 function showNextMedal(){
   const medal=medalQueue.shift()
   if(!medal){closeDialog('medal-dialog');return}
   write('medal-title',medal.name)
+  setMedalArt($('medal-emblem'),medal)
   const messages={
     duel:'You earned this in Ranked. Keep sharpening your next shot.',
     war:'Your team made it count. Take that momentum into the next round.',
@@ -1602,10 +1637,7 @@ async function loadSocial(mode,name){
       if(mode==='stats')$('country-code').value=data.player.country||''
       renderPlayerStats(data.player,data.ranks)
     }else if(mode==='medals'){
-      const earned=new Set(data.player.medals)
-      socialItem(earned.size+' of '+data.medalCatalog.length+' medals earned')
-      for(const medal of data.medalCatalog)socialItem(earned.has(medal.id)?'★ '+medal.name:medal.name,
-        earned.has(medal.id)?'Earned':medal.instruction,'',null,earned.has(medal.id)?'':'medal-locked')
+      renderMedalCollection(data.medalCatalog,data.player.medals)
     }else if(mode==='board'){
       $('board-prev').disabled=boardOffset===0
       $('board-next').disabled=!data.more
