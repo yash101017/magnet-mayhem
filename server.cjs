@@ -535,8 +535,9 @@ function startMatch(players,field,kind,rival=null,series=null){
 function registerMatch(match){
   const entry=match.kind==='warzone'?warEntry:['ranked','fallback'].includes(match.kind)?rankedEntry:0
   if(entry){
-    const accounts=match.players.map(player=>profiles.get(player.profile))
-    if(match.players.some(player=>!hasRankedEntry(player.profile,entry)))throw new Error('You need '+entry+' Arena Coins to enter.')
+    const humans=match.players.filter(Boolean)
+    const accounts=humans.map(player=>profiles.get(player.profile))
+    if(humans.some(player=>!hasRankedEntry(player.profile,entry)))throw new Error('You need '+entry+' Arena Coins to enter.')
     for(const account of accounts){
       account.coins-=entry
       account.pendingRankedAmount=entry
