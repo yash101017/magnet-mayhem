@@ -556,7 +556,7 @@ function registerMatch(match){
   match.entry=entry
   match.staked=entry>0
   matches.set(match.id,match)
-  match.game.fairMagnets=['ranked','fallback','warzone'].includes(match.kind)
+  match.game.fairMagnets=['ranked','fallback'].includes(match.kind)
   if(match.game.fairMagnets)for(const ship of match.game.craft)ship.magnet={...rankedMagnet}
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
@@ -785,7 +785,7 @@ function finish(match,winner,reason){
   match.game.phase='over'
   match.end=Date.now()
   match.results=match.players.map(()=>({reason,delta:0}))
-  const winners=match.players.filter((player,seat)=>player&&teamOf(match.game,seat)===winner).length
+  const winners=match.game.craft.filter((ship,seat)=>!ship.inactive&&teamOf(match.game,seat)===winner).length
   const prize=match.kind==='warzone'?Math.round(warEntry*warTeamSize*2/Math.max(1,winners)):rankedPrize
   for(const [seat,player] of match.players.entries()){
     if(!player)continue
@@ -1085,7 +1085,7 @@ async function serve(req,res){
     res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'no-cache'}).end(artAssets.get(route))
     return
   }
-  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-medal-collection',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
+  if(req.method==='GET'&&route==='/health'){send(res,200,{ok:true,build:'puckvolt-warzone-balance',stream:streamAvailable,learning:learningStatus,profiles:profileStatus});return}
   if(req.method!=='POST'||!['/room','/profile','/account','/redeem','/report','/block-player','/support','/social','/stripe/webhook'].includes(route)){send(res,404,{error:'Not found.'});return}
   const ip=req.socket.remoteAddress
   const now=Date.now()

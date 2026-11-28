@@ -1413,7 +1413,7 @@ function setShopPage(page){
   selectedPreview=null
   for(const tab of document.querySelectorAll('[data-market]'))tab.setAttribute('aria-pressed',String(tab.dataset.market===page))
   write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':page==='trail'?'Ship trails':'Diamond exchange')
-  write('shop-description',page==='ship'?'Ship upgrades apply in practice and private matches. Ranked and War Zone use equal magnet stats.':
+  write('shop-description',page==='ship'?'Ship upgrades apply in practice, private matches, and War Zone. Ranked 1v1 uses equal magnet stats.':
     page==='effect'?'Preview the celebration that plays when you score.':page==='trail'?'Preview the streak your ship leaves as it moves.':'Trade Arena Coins for diamonds.')
   write('shop-message','')
   updateShop()

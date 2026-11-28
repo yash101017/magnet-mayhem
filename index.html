@@ -282,7 +282,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
   <button type="button" data-market="diamonds" aria-pressed="false">Diamonds</button>
 </nav>
 <h3 id="shop-heading">Ships</h3>
-<p id="shop-description">Ship upgrades apply in practice and private matches. Ranked and War Zone use equal magnet stats.</p>
+<p id="shop-description">Ship upgrades apply in practice, private matches, and War Zone. Ranked 1v1 uses equal magnet stats.</p>
 <section id="shop-preview" class="market-preview" hidden aria-labelledby="preview-name">
   <canvas id="preview" width="320" height="84" aria-hidden="true"></canvas>
   <div><h3 id="preview-name"></h3><p id="preview-stats"></p></div>
@@ -334,7 +334,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 <dialog id="terms-dialog" aria-labelledby="terms-title">
 <header><h2 id="terms-title">PuckVolt terms of play</h2><button data-close="terms-dialog">Close</button></header>
 <p>Online play is for players aged 13 and older. Use a respectful player name and do not impersonate others, cheat, or interfere with the service. Use Report or block in a match to flag an abusive name or keep a player out of future matches with you.</p>
-<p>Bots can fill open seats in Ranked and War Zone. Ranked modes use equal magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone charges 50 coins per player and divides a 500-coin prize among the winning team members still in the match. Friend rooms are free to enter.</p>
+<p>Bots can fill open seats in Ranked and War Zone. Ranked 1v1 uses equal magnet stats. War Zone uses each equipped ship’s magnet stats. Ranked 1v1 charges each player 30 Arena Coins when a match starts and pays 60 to the winner, including wins by forfeit. Eligible matches may change ratings. War Zone charges each player 50 coins. The 500-coin prize is split across active winning seats, with shares rounded to whole coins. Players who leave forfeit their share. Bot seats count in the split and do not receive coins. Friend rooms are free to enter.</p>
 <p>Arena Coins, diamonds and unlocks can be used only in PuckVolt. They cannot be transferred or redeemed for cash or prizes. You can close your account using <a href="/account-deletion">Delete account</a>.</p>
 </dialog>
 
@@ -549,6 +549,8 @@ function resetRound(game) {
   game.routeObstacle = null
   game.routeTime = 0
   game.cornerStall = 0
+  game.warPin = null
+  game.warChaser = [-1,-1]
   game.trail = []
   game.effects = []
   game.serve = game.mode === 'practice' || game.mode === 'circuit' ? 0 : .8
@@ -843,50 +845,91 @@ function runWarTeam(game,team,inputs,dt){
   const first=team*warTeamSize
   const end=first+warTeamSize
   const puck=game.puck
-  const direction=team===0?-1:1
   const attackGoal=team===0?wall:H-wall
-  const attackOrder=game.craft.slice(first,end).map((craft,index)=>({
-    seat:first+index,distance:distance(craft,puck)
-  })).filter(entry=>!game.craft[entry.seat].inactive).sort((a,b)=>a.distance-b.distance)
-  const firstBot=attackOrder.find(entry=>game.bots?.[entry.seat])?.seat
-  const secondBot=attackOrder.find(entry=>entry.seat!==firstBot&&game.bots?.[entry.seat])?.seat
+  const dx=W/2-puck.x,dy=attackGoal-puck.y
+  const length=Math.max(1,Math.hypot(dx,dy))
+  const ux=dx/length,uy=dy/length
+  const speed=Math.hypot(puck.vx,puck.vy)
+  const edge=puck.x<wall+30||puck.x>W-wall-30||puck.y<wall+30||puck.y>H-wall-30
+  const recovering=edge&&speed<48
+  const inX=W/2-puck.x,inY=H/2-puck.y
+  let chaser=-1,best=Infinity
   for(let seat=first;seat<end;seat++){
-    if(game.craft[seat].inactive)continue
+    const ship=game.craft[seat]
+    if(ship.inactive||!game.bots?.[seat])continue
+    const stats=ship.magnet||starterMagnet
+    const x=puck.x-ship.x,y=puck.y-ship.y,gap=Math.hypot(x,y)
+    const aim=gap>0?(x*ux+y*uy)/gap:0
+    const shot=gap<=stats.range&&ship.cd<=0&&aim>.90
+    const cost=gap-stats.range*.35-(shot?85:0)-(seat===game.warChaser[team]?28:0)
+    if(cost<best){best=cost;chaser=seat}
+  }
+  game.warChaser[team]=chaser
+  for(let seat=first;seat<end;seat++){
+    const ship=game.craft[seat]
+    if(ship.inactive)continue
     const config=game.bots?.[seat]
     if(!config){applyInput(game,seat,inputs[seat]||neutralInput,dt);continue}
-    const ship=game.craft[seat], ai=difficulties[config.difficulty]
-    const [lane]=warSpawns[seat-first]
-    const chase=seat===firstBot
-    const support=seat===secondBot
+    const ai=difficulties[config.difficulty]
     const reach=(ship.magnet||starterMagnet).range
-    const space=Math.max(23,Math.min(reach-3,reach*(config.tactic?.behind??.84)))
-    const goalX=W/2+(seat%2?1:-1)*(config.tactic?.lane??0)
-    const dx=goalX-puck.x,dy=attackGoal-puck.y
-    const length=Math.max(1,Math.hypot(dx,dy))
+    const chase=seat===chaser
     const touch=distance(ship,puck)
     let x,y
     if(chase){
-      const corner=(puck.x<65||puck.x>W-65)&&(puck.y<65||puck.y>H-65)
-      x=corner?puck.x+(W/2-puck.x)*.35:puck.x-dx/length*space
-      y=corner?puck.y+(H/2-puck.y)*.27:puck.y-dy/length*space
-      if(!corner&&touch>reach+12){x=puck.x;y=puck.y-direction*24}
-    }else if(support){
-      x=puck.x+(ship.x<puck.x?-65:65)
-      y=puck.y-direction*36
+      const space=clamp(reach*(config.tactic?.behind??.84),24,reach-1)
+      const inward=Math.max(1,Math.hypot(inX,inY))
+      x=recovering?puck.x+inX/inward*space:puck.x-ux*space
+      y=recovering?puck.y+inY/inward*space:puck.y-uy*space
     }else{
-      x=lane*.66+puck.x*.34+Math.sin(game.elapsed*2+seat)*12
-      y=puck.y-direction*(72+(seat-first)%3*25)
-      y=team===0?clamp(y,145,H-40):clamp(y,40,H-145)
+      const [lane]=warSpawns[seat-first]
+      x=lane*.82+puck.x*.18
+      y=puck.y-uy*(93+(seat-first)%3*30)
+      y=team===0?clamp(y,125,H-40):clamp(y,40,H-125)
+      if(touch<68){
+        x=ship.x+(ship.x-puck.x)*2
+        y=ship.y+(team===0?75:-75)
+      }else if(Math.hypot(x-puck.x,y-puck.y)<80){
+        y=puck.y+(team===0?95:-95)
+      }
     }
-    const target=pathToPuck(game,ship,clamp(x,31,W-31),clamp(y,32,H-32))
+    game.botThink[seat]=Math.max(0,game.botThink[seat]-dt)
+    if(chase&&game.botThink[seat]===0&&ship.cd<=0&&touch<=reach&&touch>1){
+      const sx=puck.x-ship.x,sy=puck.y-ship.y
+      const alignment=(sx*ux+sy*uy)/touch
+      const inwardPull=(-sx*inX-sy*inY)/(touch*Math.max(1,Math.hypot(inX,inY)))
+      if((alignment>.91||alignment>.74&&touch<32)&&magnet(game,seat,true)){
+        game.botThink[seat]=ai.reaction
+      }else if(recovering&&inwardPull>.6&&magnet(game,seat,false)){
+        game.botThink[seat]=ai.reaction
+      }
+    }
+    const target=pathToPuck(game,ship,clamp(x,29,W-29),clamp(y,29,H-29))
     steer(ship,target.x,target.y,ai.speed+config.speed,dt)
-    game.botThink[seat]-=dt
-    if(game.botThink[seat]>0||ship.cd>0||(!chase&&!support))continue
-    game.botThink[seat]=ai.reaction+.08
-    const ahead=(puck.y-ship.y)*direction
-    if(touch<=reach&&ahead>16&&Math.abs(puck.x-ship.x)<ahead*1.25)magnet(game,seat,true)
-    else if(chase&&touch>Math.max(23,reach*.65)&&touch<reach&&Math.abs(puck.x-ship.x)>touch*.72&&Math.hypot(puck.vx,puck.vy)<30)magnet(game,seat,false)
   }
+}
+
+function releaseWarPin(game,dt){
+  const puck=game.puck
+  const nearby=game.craft.filter(ship=>!ship.inactive&&distance(ship,puck)<34)
+  const hasBot=game.craft.some((ship,seat)=>!ship.inactive&&game.bots?.[seat]&&distance(ship,puck)<34)
+  if(!hasBot||nearby.length<2){game.warPin=null;return}
+  if(!game.warPin||distance(game.warPin,puck)>20)game.warPin={x:puck.x,y:puck.y,time:0}
+  game.warPin.time+=dt
+  if(game.warPin.time<.9)return
+  const corner=cornerAt(puck)
+  let dx=corner?corner.x-puck.x:0,dy=corner?corner.y-puck.y:0
+  if(!corner){
+    const a=nearby[0],b=nearby[1]
+    dx=b.y-a.y
+    dy=a.x-b.x
+    if(dx*(W/2-puck.x)+dy*(H/2-puck.y)<0){dx=-dx;dy=-dy}
+  }
+  const length=Math.hypot(dx,dy)
+  game.warPin=null
+  if(length<1)return
+  puck.vx=320*dx/length
+  puck.vy=320*dy/length
+  event(game,'release')
 }
 
 function steerPlayer(craft,input,dt) {
@@ -980,6 +1023,7 @@ function step(game,inputs=[neutralInput,neutralInput],dt=stepSeconds) {
   if(!opening&&(puck.y<wall+8||puck.y>H-wall-8)){
     puck.y=clamp(puck.y,wall+8,H-wall-8);puck.vy*=-.86
   }
+  if(game.mode==='warzone')releaseWarPin(game,dt)
   releasePinnedPuck(game,craft,dt)
   if((game.frame=(game.frame||0)+1)%3===0){
     game.trail.push({x:puck.x,y:puck.y})
@@ -2412,7 +2456,7 @@ function setShopPage(page){
   selectedPreview=null
   for(const tab of document.querySelectorAll('[data-market]'))tab.setAttribute('aria-pressed',String(tab.dataset.market===page))
   write('shop-heading',page==='ship'?'Ships':page==='effect'?'Goal effects':page==='trail'?'Ship trails':'Diamond exchange')
-  write('shop-description',page==='ship'?'Ship upgrades apply in practice and private matches. Ranked and War Zone use equal magnet stats.':
+  write('shop-description',page==='ship'?'Ship upgrades apply in practice, private matches, and War Zone. Ranked 1v1 uses equal magnet stats.':
     page==='effect'?'Preview the celebration that plays when you score.':page==='trail'?'Preview the streak your ship leaves as it moves.':'Trade Arena Coins for diamonds.')
   write('shop-message','')
   updateShop()
